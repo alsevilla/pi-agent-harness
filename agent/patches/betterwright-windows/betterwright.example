@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /c/Users/MSI/.bun/bin/bun.exe /c/Users/MSI/.bun/install/global/node_modules/betterwright/dist/bin/betterwright.js "$@"

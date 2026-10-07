@@ -1,0 +1,7 @@
+# Use installed package source so Windows background-process fixes apply.
+if ($MyInvocation.ExpectingInput) {
+    $input | & "C:/Users/MSI/.bun/bin/bun.exe" "C:/Users/MSI/.bun/install/global/node_modules/betterwright/dist/bin/betterwright.js" @args
+} else {
+    & "C:/Users/MSI/.bun/bin/bun.exe" "C:/Users/MSI/.bun/install/global/node_modules/betterwright/dist/bin/betterwright.js" @args
+}
+exit $LASTEXITCODE

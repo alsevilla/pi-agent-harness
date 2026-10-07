@@ -1,0 +1,55 @@
+# ---- Caches / regenerable (do NOT commit) ----
+git/
+npm/
+node_modules/
+sessions/
+tmp/
+graphify-out/
+
+# ---- Per-clone caches ----
+**/__pycache__/
+*.pyc
+
+# ---- Secrets / auth (never commit) ----
+auth.json
+
+# ---- Local caches / generated state ----
+mcp-cache.json
+models-store.json
+models.json
+.gsd-profile
+gsd-install-state.json
+gsd-migration-journal/
+missions/
+
+# ---- Backups ----
+*.bak*
+*.bak.before-*
+*.bak.before-mcp-adapter
+
+# ---- Graphify output (regenerable) ----
+graphify-out/
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+*.swp
+
+# Current modular profile: private/generated data and local configuration
+profile-backups/
+.serena/
+.qmd/
+*.sqlite*
+*.db
+*.log
+.env
+.env.*
+!*.example
+agent/settings.json
+agent/mcp-onboarding.json
+agent/extensions/qmd/config.json
+agent/extensions/engineering-environment/config.json
+
+# Machine-local helper executables
+/agent/bin/
+agent/extensions/refresh/config.json
