@@ -7,7 +7,7 @@ const agentDir = fileURLToPath(new URL("../../../", import.meta.url));
 mock.module("@earendil-works/pi-coding-agent", () => ({
   getAgentDir: () => agentDir,
 }));
-const { configureCodeIntegrations } = await import("../code-integrations.ts");
+const { configureCodeIntegrations, CODE_NAVIGATION_GUIDANCE } = await import("../code-integrations.ts");
 const config = JSON.parse(fs.readFileSync(new URL("../integrations.json", import.meta.url), "utf8"));
 const unsafeMutations = [
   "serena_replace_symbol_body", "serena_insert_before_symbol", "serena_insert_after_symbol",
@@ -43,6 +43,27 @@ for (const name of ["rust-worker", "frontend-worker"]) {
     for (const tool of config.readOnlyTools) assert.ok(tools.includes(tool), `read-only integration lost: ${tool}`);
   });
 }
+test("shared code-leaf guidance specifies artifact placement and missing-path handoff", () => {
+  assert.match(CODE_NAVIGATION_GUIDANCE, /_scratch\/<task>/);
+  assert.match(CODE_NAVIGATION_GUIDANCE, /_evidence\/<task>/);
+  assert.match(CODE_NAVIGATION_GUIDANCE, /absolute.*paths.*task packet/i);
+  assert.match(CODE_NAVIGATION_GUIDANCE, /do not create.*beside the primary checkout/i);
+  assert.match(CODE_NAVIGATION_GUIDANCE, /return.*main.*missing/i);
+  assert.match(CODE_NAVIGATION_GUIDANCE, /report.*artifact paths.*handoff/i);
+});
+test("shared guidance treats live SQLite and running executables as relocation blockers", () => {
+  assert.match(CODE_NAVIGATION_GUIDANCE, /SQLite.*-wal.*-shm/i);
+  assert.match(CODE_NAVIGATION_GUIDANCE, /running executable/i);
+  assert.match(CODE_NAVIGATION_GUIDANCE, /verify processes have stopped before relocating/i);
+  assert.match(CODE_NAVIGATION_GUIDANCE, /Restart only with verified DB_PATH[\s\S]*otherwise leave services stopped/i);
+});
+test("worktree policy permits safe relocation without a known restart configuration", () => {
+  const paths = ["../../../AGENTS.md", "../../../README.md", "../README.md", "../../../skills/engineering-harness/worktree/index.md", "../../../skills/engineering-harness/worktree/guide.md"];
+  for (const path of paths) {
+    const policy = fs.readFileSync(new URL(path, import.meta.url), "utf8");
+    assert.match(policy, /unknown restart configuration does not block authorized relocation/i, path);
+  }
+});
 test("actual read-only scout grants remain unchanged", () => {
   const agent = role("scout");
   assert.ok(!agent.tools.includes("edit") && !agent.tools.includes("write"));

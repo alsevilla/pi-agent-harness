@@ -11,8 +11,30 @@ For RFID this is `C:/Users/MSI/RFID/worktrees/RFIDAttendance-Rust/<task>`.
 Keep temporary copies, QA fixtures and logs in `_scratch/<task>` beneath that same
 repo worktree folder; captured evidence/backups belong in `_evidence/<task>`.
 Do not scatter new checkouts, copies or build targets beside the primary checkout.
+For any task that may produce external artifacts, main supplies the exact absolute
+`_scratch/<task>` and `_evidence/<task>` paths in its dispatch packet, including
+when source work uses the primary checkout. Leaves do not invent sibling folders;
+if required paths are missing, they return that scope to main before writing.
 Use `git worktree add` for Git checkouts and record their absolute paths in packets.
+At handoff, compare output paths against the packet and pre-task root inventory.
+Move only idle, task-owned misplaced artifacts to their assigned directory and
+verify preservation; retain and report live or unknown data instead of cleaning it.
 Do not move an existing checkout while a running/paused worker or server uses it.
+
+### Live artifact relocation
+For existing database or build-output directories, identify owning processes,
+ports and probable data paths. If owners are active, obtain explicit downtime
+authority, quiesce and stop them, and verify they exited. Never move a running
+executable or live SQLite database. Back up a live SQLite database through its backup API when
+needed, and verify the backup.
+Unknown restart configuration does not block authorized relocation; leave
+services stopped if restart requirements cannot be established. Move each
+database directory separately with its `.db`, `-wal` and `-shm` files intact;
+do not merge databases, delete sidecars or overwrite a destination. Verify
+file counts/hashes after moving whole directories. Path-bound tools such as
+virtualenv launchers may need recreation; check them before claiming they work.
+Restart only with a verified executable, environment and DB path (for example
+`DB_PATH`); otherwise leave services stopped and report the required handoff.
 
 ### Completion and cleanup
 As part of an authorized merge/delivery, main checks disposition of every task-owned
