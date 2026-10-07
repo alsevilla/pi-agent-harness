@@ -2,7 +2,7 @@
 
 This directory is a shareable snapshot of the current `~/.pi/agent` profile for Pi 1.0.4. It uses direct Claude subscription and ChatGPT/Codex sign-in. CLIProxyAPI is not required.
 
-The older root-level stack was retired and is recoverable from Git history only. Use the active agent/ profile.
+This repository starts from a fresh source snapshot. The retired root-level stack is not in its history; use the active agent/ profile.
 
 ## Included
 
