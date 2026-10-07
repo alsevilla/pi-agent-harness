@@ -22,6 +22,22 @@ error means the checks did not run; correct the shell invocation before reportin
 test results or diagnosing application code. Do not rerun checks already completed
 successfully merely to repair a later invocation error.
 
+## Artifact placement
+Main supplies absolute scratch/evidence paths in task packet when an assignment
+may produce files outside its candidate. Put separate QA fixtures, temporary
+copies, external build targets and logs in the assigned _scratch/<task> path;
+put captured backups and durable evidence in _evidence/<task>. These paths
+normally live under <primary-parent>/worktrees/<repo>, not beside the checkout.
+Do not create scratch directories beside the primary checkout.
+Return to main when required artifact paths are missing; do not guess a sibling
+folder. Report actual artifact paths at handoff. Source/test edits stay in the
+assigned candidate. Shell access is not a filesystem sandbox; verify targets
+before write-capable commands.
+Do not move live SQLite .db, -wal and -shm files or a running executable.
+Obtain authorized downtime and verify processes have stopped before relocating
+whole directories. Restart only with verified DB_PATH and runtime configuration;
+otherwise leave services stopped and return that scope to main.
+
 ## Code navigation integrations
 Ponytail's native extension is explicitly active in this code leaf and injects
 the configured default/session mode without an extra skill read. Apply its reuse
