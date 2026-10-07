@@ -1,0 +1,37 @@
+{
+  "defaultProvider": "anthropic",
+  "defaultModel": "claude-sonnet-5-5",
+  "defaultThinkingLevel": "medium",
+  "defaultTools": [
+    "read",
+    "grep",
+    "find",
+    "ls",
+    "bash",
+    "powershell",
+    "edit",
+    "write"
+  ],
+  "cacheWarming": "off",
+  "quietStartup": true,
+  "packages": [
+    "npm:pi-claude-subscription-connector",
+    "npm:pi-mcp-adapter",
+    "npm:@bacnh85/pi-serena",
+    {
+      "source": "npm:graphify-pi",
+      "extensions": [
+        "extensions/graphify.ts"
+      ],
+      "skills": []
+    },
+    "npm:@dietrichgebert/ponytail"
+  ],
+  "lastChangelogVersion": "1.0.4",
+  "extensions": [
+    "-builtin:mcp"
+  ],
+  "skills": [
+    "!**/.agents/skills/browser/SKILL.md"
+  ]
+}

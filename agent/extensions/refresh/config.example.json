@@ -1,0 +1,4 @@
+{
+  "graphPythonPath": "C:/absolute/path/to/existing/graphify-environment/Scripts/python.exe",
+  "timeoutMs": 120000
+}

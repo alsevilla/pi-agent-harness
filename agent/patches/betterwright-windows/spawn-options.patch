@@ -1,0 +1,12 @@
+--- dist/src/daemon-client.js
++++ dist/src/daemon-client.js
+@@
+     const child = spawn(process.execPath, [...bunInheritedExecArgv(), cliPath, "__daemon"], {
++        windowsHide: true,
+         detached: true,
+--- dist/src/client.js
++++ dist/src/client.js
+@@
+         const child = spawn(process.execPath, [...bunInheritedExecArgv(env), ...execArgv, WORKER_PATH], {
++            windowsHide: true,
+             cwd: process.versions.electron ? this._workerConfig().runtimeDir : path.dirname(WORKER_PATH),

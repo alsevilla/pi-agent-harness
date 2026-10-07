@@ -1,0 +1,38 @@
+{
+  "roles": [
+    "api-specialist",
+    "architecture-specialist",
+    "concurrency-specialist",
+    "debugger",
+    "devops-specialist",
+    "frontend-worker",
+    "hardware-integration",
+    "observability-specialist",
+    "oracle",
+    "performance-specialist",
+    "reviewer",
+    "rust-worker",
+    "scout",
+    "security-specialist",
+    "sqlite-specialist",
+    "test-engineer",
+    "ui-ux-specialist"
+  ],
+  "readOnlyTools": [
+    "serena_status",
+    "serena_list_tools",
+    "serena_get_symbols_overview",
+    "serena_find_symbol",
+    "serena_find_referencing_symbols",
+    "serena_find_declaration",
+    "serena_find_implementations",
+    "serena_search_for_pattern",
+    "serena_get_current_config",
+    "serena_get_diagnostics_for_file",
+    "serena_check_onboarding_performed",
+    "qmd_search",
+    "qmd_get",
+    "qmd_status"
+  ],
+  "workerTools": []
+}

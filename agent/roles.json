@@ -1,0 +1,146 @@
+[
+  {
+    "name": "api-specialist",
+    "provider": "openai-codex",
+    "model": "gpt-6-luna",
+    "fallbackModel": "github-copilot/gpt-6-luna",
+    "thinking": "medium",
+    "tools": "read, grep, find, ls, bash, powershell"
+  },
+  {
+    "name": "architecture-specialist",
+    "provider": "openai-codex",
+    "model": "gpt-6-luna",
+    "fallbackModel": "github-copilot/gpt-6-luna",
+    "thinking": "medium",
+    "tools": "read, grep, find, ls, bash, powershell"
+  },
+  {
+    "name": "concurrency-specialist",
+    "provider": "openai-codex",
+    "model": "gpt-6-luna",
+    "fallbackModel": "github-copilot/gpt-6-luna",
+    "thinking": "medium",
+    "tools": "read, grep, find, ls, bash, powershell"
+  },
+  {
+    "name": "debugger",
+    "provider": "openai-codex",
+    "model": "gpt-6.1-sol",
+    "fallbackModel": "github-copilot/gpt-6-sol",
+    "thinking": "medium",
+    "tools": "read, grep, find, ls, bash, powershell"
+  },
+  {
+    "name": "devops-specialist",
+    "provider": "openai-codex",
+    "model": "gpt-6-luna",
+    "fallbackModel": "github-copilot/gpt-6-luna",
+    "thinking": "low",
+    "tools": "read, grep, find, ls, bash, powershell"
+  },
+  {
+    "name": "frontend-worker",
+    "provider": "openai-codex",
+    "model": "gpt-6-luna",
+    "fallbackModel": "github-copilot/gpt-6-luna",
+    "thinking": "low",
+    "tools": "read, grep, find, ls, bash, powershell, edit, write"
+  },
+  {
+    "name": "hardware-integration",
+    "provider": "openai-codex",
+    "model": "gpt-6-luna",
+    "fallbackModel": "github-copilot/gpt-6-luna",
+    "thinking": "low",
+    "tools": "read, grep, find, ls, bash, powershell"
+  },
+  {
+    "name": "observability-specialist",
+    "provider": "openai-codex",
+    "model": "gpt-6-luna",
+    "fallbackModel": "github-copilot/gpt-6-luna",
+    "thinking": "low",
+    "tools": "read, grep, find, ls, bash, powershell"
+  },
+  {
+    "name": "oracle",
+    "provider": "anthropic",
+    "model": "claude-opus-5-5",
+    "fallbackModel": "github-copilot/claude-opus-5.5",
+    "thinking": "high",
+    "tools": "read, grep, find, ls, bash, powershell"
+  },
+  {
+    "name": "performance-specialist",
+    "provider": "openai-codex",
+    "model": "gpt-6-luna",
+    "fallbackModel": "github-copilot/gpt-6-luna",
+    "thinking": "medium",
+    "tools": "read, grep, find, ls, bash, powershell"
+  },
+  {
+    "name": "reviewer",
+    "provider": "openai-codex",
+    "model": "gpt-6.1-sol",
+    "fallbackModel": "github-copilot/gpt-6-sol",
+    "thinking": "medium",
+    "tools": "read, grep, find, ls, bash, powershell"
+  },
+  {
+    "name": "rust-worker",
+    "provider": "openai-codex",
+    "model": "gpt-6-luna",
+    "fallbackModel": "github-copilot/gpt-6-luna",
+    "thinking": "low",
+    "tools": "read, grep, find, ls, bash, powershell, edit, write"
+  },
+  {
+    "name": "scout",
+    "provider": "openai-codex",
+    "model": "gpt-6-luna",
+    "fallbackModel": "github-copilot/gpt-6-luna",
+    "thinking": "low",
+    "tools": "read, grep, find, ls, bash, powershell"
+  },
+  {
+    "name": "security-specialist",
+    "provider": "openai-codex",
+    "model": "gpt-6.1-sol",
+    "fallbackModel": "github-copilot/gpt-6-sol",
+    "thinking": "medium",
+    "tools": "read, grep, find, ls, bash, powershell"
+  },
+  {
+    "name": "sqlite-specialist",
+    "provider": "openai-codex",
+    "model": "gpt-6-luna",
+    "fallbackModel": "github-copilot/gpt-6-luna",
+    "thinking": "medium",
+    "tools": "read, grep, find, ls, bash, powershell"
+  },
+  {
+    "name": "statusline-setup",
+    "provider": "openai-codex",
+    "model": "gpt-6-luna",
+    "fallbackModel": "github-copilot/gpt-6-luna",
+    "thinking": "low",
+    "tools": "read, grep, find, ls, bash, powershell, edit, write"
+  },
+  {
+    "name": "test-engineer",
+    "provider": "openai-codex",
+    "model": "gpt-6-luna",
+    "fallbackModel": "github-copilot/gpt-6-luna",
+    "thinking": "low",
+    "tools": "read, grep, find, ls, bash, powershell"
+  },
+  {
+    "name": "ui-ux-specialist",
+    "provider": "openai-codex",
+    "model": "gpt-6-luna",
+    "fallbackModel": "github-copilot/gpt-6-luna",
+    "thinking": "medium",
+    "tools": "read, grep, find, ls, bash, powershell"
+  }
+]

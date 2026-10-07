@@ -1,0 +1,26 @@
+{
+  "nativeGraphify": true,
+  "workerSerenaTools": 17,
+  "recursiveRouterLoaded": false,
+  "source": "Local subprocess-argument and extension-handler fixture",
+  "testedRoles": [
+    "debugger",
+    "rust-worker",
+    "reviewer",
+    "oracle",
+    "statusline-setup"
+  ],
+  "backendVerification": "Serena bridge and Graphify CLI not exercised",
+  "navigationOnlySerenaTools": 11,
+  "status": "PASS",
+  "modelCalls": 0,
+  "nativeSerena": true,
+  "qmdReadOnlySearch": true,
+  "qmdFixtureSearchPassed": true,
+  "qmdProjectStateCreated": false,
+  "qmdMaximumResults": 5,
+  "qmdBackend": "plain @tobilu/qmd CLI",
+  "qmdNativeIndexVerified": true,
+  "qmdBoundedDocumentRetrievalVerified": true,
+  "adaptiveSearchDependency": false
+}
