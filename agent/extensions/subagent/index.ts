@@ -31,6 +31,7 @@ import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
 import { normalizeModelRef, shouldRetryWithFallback } from "./model-routing.ts";
 import { configureCodeIntegrations, CODE_NAVIGATION_GUIDANCE, graphReferenceGuidance } from "./code-integrations.ts";
+import { cargoEnvDefaults } from "./build-env.ts";
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
@@ -274,7 +275,7 @@ async function runSingleAgent(
 			const invocation = getPiInvocation(args);
 			const proc = spawn(invocation.command, invocation.args, {
 				cwd: cwd ?? defaultCwd,
-                env: {...process.env, PI_SUBAGENT_CONTROL_FILE: controlPath ?? ""},
+                env: {...process.env, ...cargoEnvDefaults(cwd ?? defaultCwd), PI_SUBAGENT_CONTROL_FILE: controlPath ?? ""},
 				shell: false,
 				stdio: [dispatchDefaults.jobId ? "pipe" : "ignore", "pipe", "pipe"],
 			});

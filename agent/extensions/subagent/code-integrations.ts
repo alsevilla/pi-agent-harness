@@ -22,6 +22,14 @@ error means the checks did not run; correct the shell invocation before reportin
 test results or diagnosing application code. Do not rerun checks already completed
 successfully merely to repair a later invocation error.
 
+## Rust build output
+Workers inherit a per-checkout CARGO_TARGET_DIR (shared, outside the repo) and
+CARGO_INCREMENTAL=0. Use that directory for every cargo command; do not create or
+set another target directory, do not delete the shared one, and do not run servers
+from it (run a copy of the executable from the run folder instead: a running .exe
+locks its file and breaks later builds). If CARGO_TARGET_DIR is unset, or a task
+packet names a different one, follow the packet and say so in the handoff.
+
 ## Artifact placement
 Main supplies absolute scratch/evidence paths in task packet when an assignment
 may produce files outside its candidate. Put separate QA fixtures, temporary
