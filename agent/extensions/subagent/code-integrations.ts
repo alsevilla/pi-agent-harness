@@ -144,10 +144,12 @@ export function graphReferenceGuidance(cwd: string, globalDirectory = path.join(
   }
 }
 
-export function configureCodeIntegrations(args: string[], agent: AgentConfig): boolean {
+// extraTools are per-launch grants (e.g. request_decision); they are appended to the role's own allowlist only.
+export function configureCodeIntegrations(args: string[], agent: AgentConfig, extraTools: string[] = []): boolean {
   const config = JSON.parse(fs.readFileSync(new URL("./integrations.json", import.meta.url), "utf8")) as IntegrationConfig;
   if (!config.roles.includes(agent.name)) {
-    if (agent.tools?.length) args.push("--tools", agent.tools.join(","));
+    // A role without an explicit allowlist means all default tools; a grant cannot be expressed there, so it is skipped.
+    if (agent.tools?.length) args.push("--tools", [...agent.tools, ...extraTools].join(","));
     return false;
   }
   const packages = path.join(getAgentDir(), "npm", "node_modules");
@@ -165,6 +167,7 @@ export function configureCodeIntegrations(args: string[], agent: AgentConfig): b
   // Exact names preserve role authority; never select all serena_* tools by wildcard.
   const tools = new Set([...(agent.tools ?? ["read", "grep", "find", "ls"]), ...config.readOnlyTools]);
   if (tools.has("edit") || tools.has("write")) for (const tool of config.workerTools) tools.add(tool);
+  for (const tool of extraTools) tools.add(tool);
   args.push("--tools", [...tools].join(","));
   return true;
 }

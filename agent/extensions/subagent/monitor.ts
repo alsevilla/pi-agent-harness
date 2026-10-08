@@ -1,4 +1,4 @@
-import { matchesKey, Key, getKeybindings, isKeyRelease, truncateToWidth, wrapTextWithAnsi, visibleWidth, ScrollView, MouseRegion, type Component, type TuiMouseEvent, type TUI } from "@earendil-works/pi-tui";
+import { matchesKey, Key, getKeybindings, isKeyRelease, truncateToWidth, wrapTextWithAnsi, visibleWidth, ScrollView, MouseRegion, type Component, type ScrollViewScrollbar, type TuiMouseEvent, type TUI } from "@earendil-works/pi-tui";
 import { AssistantMessageComponent, ToolExecutionComponent, createReadToolDefinition, createBashToolDefinition, createPowerShellToolDefinition, createEditToolDefinition, createWriteToolDefinition, createGrepToolDefinition, createFindToolDefinition, createLsToolDefinition, type ExtensionAPI, type ExtensionContext, type ToolRenderers } from "@earendil-works/pi-coding-agent";
 
 export type WorkerState = "initializing" | "running" | "pausing" | "paused" | "completed" | "failed" | "aborted";
@@ -27,6 +27,18 @@ export const contextLabel = (r: WorkerRecord) => r.context === undefined ? "Awai
   `${tokens(r.context)}${r.contextLimit ? ` / ${tokens(r.contextLimit)} (${Math.round(r.context / r.contextLimit * 100)}%)` : ""} · last reported`;
 
 
+// Mirrors SettingsManager.getFullscreenScrollbar; ExtensionAPI.getSettings() returns the raw value.
+export function fullscreenScrollbarMode(value: unknown): ScrollViewScrollbar {
+  return value === "always" || value === "hidden" ? value : "auto";
+}
+// Mirrors pi-tui layout.js getScrollbarGeometry, which is not exported. Upgrade to that export if pi-tui publishes it.
+export function scrollbarThumb(track: number, content: number, scrollTop: number): {top: number; height: number} {
+  const height = Math.max(Math.min(2, track), Math.min(track, Math.round((track * track) / Math.max(1, content))));
+  const maxScrollTop = Math.max(0, content - track);
+  return {top: maxScrollTop === 0 ? 0 : Math.round((scrollTop / maxScrollTop) * (track - height)), height};
+}
+// Idle glyphs from pi-tui paintScrollbar; this indicator has no hover or drag state.
+const SCROLLBAR_THUMB = "┃", SCROLLBAR_TRACK = "│";
 function toolCommand(name: string, args: any): string {
   if (args?.command) return "$ " + oneLine(args.command).slice(0, 1000) + (args.timeout ? " (timeout " + args.timeout + "s)" : "");
   const target = args?.relative_path ?? args?.file_path ?? args?.path;
@@ -206,7 +218,7 @@ export class WorkerInspector implements Component {
   private cacheWorker?: string;
   private turns = new Map<string, {component: ToolExecutionComponent; revision: number; tool: ToolActivity}>();
   private regions: {component: ToolExecutionComponent; top: number; height: number}[] = [];
-  constructor(private store: WorkerStore, private tui: TUI, private theme: any, private done: () => void, id?: string, private positions = new Map<string, ReadingPosition>()) { this.selectedId = id; }
+  constructor(private store: WorkerStore, private tui: TUI, private theme: any, private done: () => void, id?: string, private positions = new Map<string, ReadingPosition>(), private scrollbarMode: () => ScrollViewScrollbar = () => "auto") { this.selectedId = id; }
   invalidate() { for (const entry of this.turns.values()) entry.component.invalidate(); for (const component of this.responses.values()) component.invalidate(); }
   dispose() {
     if (this.cacheWorker) this.positions.set(this.cacheWorker, {top: this.viewport.scrollTop, following: this.viewport.isFollowingEnd});
@@ -241,6 +253,11 @@ export class WorkerInspector implements Component {
     const outerWidth = width;
     const framed = this.framed = width >= 8;
     if (framed) width -= 4;
+    // Auto and always keep one gutter cell so content does not reflow when the thumb appears; hidden keeps full width.
+    const scrollbar = this.scrollbarMode();
+    this.viewport.setScrollbar(scrollbar);
+    const gutter = scrollbar !== "hidden" && width > 1;
+    const bodyWidth = gutter ? width - 1 : width;
     this.jump = undefined;
     const all = this.store.list();
     const selected = all.find(r => r.id === this.selectedId) ?? all[0]; this.selectedId = selected?.id;
@@ -274,14 +291,14 @@ export class WorkerInspector implements Component {
         if (entry.type === "tool") {
           const tool = tools.find(t => t.id === entry.id); if (!tool) continue;
           const component = this.turn(tool);
-          const lines = component.render(width);
+          const lines = component.render(bodyWidth);
           this.regions.push({component, top: body.length, height: lines.length});
           body.push(...lines);
         } else if (entry.text) {
           let component = this.responses.get(entry.id);
           if (!component) { component = new AssistantMessageComponent(undefined, true); this.responses.set(entry.id, component); }
           component.updateContent({role: "assistant", content: [{type: "text", text: entry.text}], timestamp: selected.startedAt} as any, entry.partial);
-          body.push(...component.render(width));
+          body.push(...component.render(bodyWidth));
         }
       }
       if (!body.length) body.push(" Waiting for the first response or tool call…");
@@ -293,17 +310,26 @@ export class WorkerInspector implements Component {
         this.pendingPosition = undefined;
       }
       this.bodyTop = rows.length;
-      const visible = this.viewport.render(width).slice(this.viewport.scrollTop, this.viewport.scrollTop + available);
+      const visible = this.documentLines.slice(this.viewport.scrollTop, this.viewport.scrollTop + available);
       if (!this.viewport.isFollowingEnd && visible.length) {
         // Same label, styling, and click-to-bottom behavior as Pi's fullscreen transcript.
         const keys = getKeybindings().getKeys("tui.altScreen.bottom").map(key => key.split("+").map(part => part.charAt(0).toUpperCase() + part.slice(1)).join("+")).join("/");
-        const label = truncateToWidth(" ↓ Jump to latest message" + (keys ? " · " + keys : "") + " ", width, "");
-        const col = Math.max(0, Math.floor((width - visibleWidth(label)) / 2));
+        const label = truncateToWidth(" ↓ Jump to latest message" + (keys ? " · " + keys : "") + " ", bodyWidth, "");
+        const col = Math.max(0, Math.floor((bodyWidth - visibleWidth(label)) / 2));
         const row = visible.length - 1;
         visible[row] = " ".repeat(col) + this.theme.bg("selectedBg", this.theme.fg("text", label));
         this.jump = {row: this.bodyTop + row, col, width: visibleWidth(label)};
       }
-      rows.push(...visible);
+      // One gutter cell per body row. Thumb and track show only while the native ScrollView reports the bar visible.
+      const thumb = scrollbarThumb(available, body.length, this.viewport.scrollTop);
+      const showBar = this.viewport.isScrollbarVisible;
+      for (let row = 0; row < available; row++) {
+        const line = visible[row] ?? "";
+        if (!gutter) { rows.push(line); continue; }
+        const clipped = truncateToWidth(line, bodyWidth, "");
+        const cell = !showBar ? " " : row >= thumb.top && row < thumb.top + thumb.height ? this.theme.fg("scrollbarThumb", SCROLLBAR_THUMB) : this.theme.fg("scrollbarTrack", SCROLLBAR_TRACK);
+        rows.push(clipped + " ".repeat(Math.max(0, bodyWidth - visibleWidth(clipped))) + cell);
+      }
     }
     while (rows.length < height - 1) rows.push(" ");
     rows.push(" ↑/↓ worker · PgUp/PgDn scroll · Ctrl+End latest · Esc close");
@@ -363,7 +389,7 @@ export class WorkerMonitor {
   private overlayOpen = false;
   private positions = new Map<string, ReadingPosition>();
   private timer?: ReturnType<typeof setInterval>;
-  constructor(pi: ExtensionAPI) {
+  constructor(private readonly pi: ExtensionAPI) {
     pi.on("session_start", (_event, ctx) => {
       if (this.timer) clearInterval(this.timer);
       this.ctx = ctx; this.store.reset(); this.positions.clear();
@@ -413,7 +439,7 @@ export class WorkerMonitor {
       await ctx.ui.custom<void>((tui, theme, _keys, done) => {
         overlayTui = tui;
         close = () => done();
-        inspector = new WorkerInspector(this.store, tui, theme, () => done(), id, this.positions);
+        inspector = new WorkerInspector(this.store, tui, theme, () => done(), id, this.positions, () => fullscreenScrollbarMode(this.pi.getSettings().fullscreenScrollbar));
         const redraw = () => tui.requestRender(); this.store.listeners.add(redraw);
         unsubscribe = () => this.store.listeners.delete(redraw);
         return inspector;

@@ -29,7 +29,7 @@ Workers · 1 active · 2 spawned · 1 done · 0 failed/stopped
 
 Finished rows disappear from the main panel but remain in bounded inspector history. Open `/subagent`, use Ctrl+Shift+W, or click a worker. The bordered overlay shows role, model, effort, status, task, activity, context and elapsed time. Statuses include Initializing, Ongoing, Pausing, Paused, Completed, Failed and Stopped.
 
-Activity uses native Pi assistant/tool components in chronological order. Latest output appears at the bottom. Scrolling up pauses following; End/Ctrl+End or **Jump to latest message** resumes it. Home/Ctrl+Home goes to oldest retained activity. Page keys and mouse scrolling follow Pi keybindings. Ctrl+O or clicking a turn controls native expansion. Worker selection and reopening preserve per-worker reading position.
+Activity uses native Pi assistant/tool components in chronological order. Latest output appears at the bottom. Scrolling up pauses following; End/Ctrl+End or **Jump to latest message** resumes it. Home/Ctrl+Home goes to oldest retained activity. Page keys and mouse scrolling follow Pi keybindings. The inspector's scrollbar follows the main `fullscreenScrollbar` setting (`auto`, `always` or `hidden`) and is display-only, with no drag or hover. Ctrl+O or clicking a turn controls native expansion. Worker selection and reopening preserve per-worker reading position.
 
 Escape or a primary click outside the overlay closes it without stopping workers. Mouse controls require terminal mouse support. The outside-click adapter depends on Pi 1.0.4's TUI listener internals and must be checked after upgrades. This is a terminal overlay, not an operating-system window.
 
@@ -37,7 +37,7 @@ History retains up to 40 tool calls and 120 transcript entries per worker, and 6
 
 ## Steering, pause and cancellation
 
-Use `subagent_control` actions `list`, `steer`, `pause`, `resume`, `cancel` and `result`. Commands provide the same controls without a model call:
+Use `subagent_control` actions `list`, `steer`, `pause`, `resume`, `cancel`, `result`, `decisions`, `answer` and `decline`. Commands provide the same controls without a model call:
 
 ```text
 /subagent list
@@ -51,6 +51,14 @@ Use `subagent_control` actions `list`, `steer`, `pause`, `resume`, `cancel` and 
 Steer a unique worker in parallel jobs. Steering is queued between turns and does not interrupt a running command. Pausing is enforced by the child-only `pause-gate.ts`: current tool/model calls may finish, then the next tool, provider or settlement boundary waits locally. A paused job also holds subsequent chain steps. The parent distinguishes Pausing from confirmed Paused. Resume continues the same process/context; cancel terminates it. New dispatches cannot bypass paused jobs/roles.
 
 Literal steering phrases such as `stop for a bit` are converted to pauses; use explicit pause controls for other wording. Temporary control files are cleaned up when workers exit. Session reset/shutdown cancels owned background jobs.
+
+## Worker decisions
+
+A new background worker may call `request_decision` when a question blocks its next write. The parent does not open a human dialog itself: it queues the request and sends main a `subagent-decision` notice with candidate, worker, request, question, options, context and blocked scope. Main lists requests with `decisions`, then answers with `answer` (freeform text plus `basis` `user_answer` or `existing_authorization` and a traceable `reference`) or `decline` (with `reason`). Main may ask its own native `ask_user` first. Options are recommendations only; a custom answer is never mapped to an option.
+
+The worker receives `answered` only with a recorded answer; `cancelled`, blank, timeout, declined and unavailable results are never approval. Steer cannot answer or unblock a request. Answers may be recorded while a job is paused but never resume it. Cancel, session reset, worker exit and job end settle pending requests exactly once. Limits: one open request per worker and four per session. The tool grants no tool, scope, server, commit or deploy permission. Foreground and direct headless runs get no decision tool.
+
+Activation: saving these files does not change the running parent. The new tool exists only after a parent reload/restart at a safe point once active workers finish; reloading resets owned jobs. Existing jobs keep their toolsets.
 
 ## Explicit code-role integrations
 
@@ -82,7 +90,7 @@ Ask only for material missing decisions, preferences or authority. Cancellation,
 
 ## Files and boundaries
 
-`index.ts` registers dispatch/controls; `background.ts` owns RPC jobs; `monitor.ts` renders live activity; `pause-gate.ts` enforces holds; `agents.ts` discovers roles; `model-routing.ts` handles model selection; `code-integrations.ts` and `integrations.json` configure integrations. Roles and prompt shortcuts live under `~/.pi/agent/agents/` and `~/.pi/agent/prompts/`, separately from this extension.
+`index.ts` registers dispatch/controls; `background.ts` owns RPC jobs; `monitor.ts` renders live activity; `pause-gate.ts` enforces holds; `decision-relay.ts` (child `request_decision`) and `decision-relay-state.ts` (parent registry) relay worker decisions; `agents.ts` discovers roles; `model-routing.ts` handles model selection; `code-integrations.ts` and `integrations.json` configure integrations. Roles and prompt shortcuts live under `~/.pi/agent/agents/` and `~/.pi/agent/prompts/`, separately from this extension.
 
 Install the full profile using `~/.pi/agent/README.md`; copying upstream example files over this extension would lose its controls/integrations. Children are leaf roles, not an OS filesystem sandbox. Shell access remains powerful; exact role/task authority and project instructions apply. Match Bash/PowerShell syntax to the selected shell tool. Authentication, sessions, dependencies and local configuration stay out of Git.
 
