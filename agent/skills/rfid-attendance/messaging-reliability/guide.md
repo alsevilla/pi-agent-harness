@@ -1,0 +1,7 @@
+# Messaging reliability guide
+
+A useful conceptual lifecycle is PENDING -> SENDING -> SENT -> DELIVERED, with explicit retryable and permanent failure states where the provider supports the distinction. Do not force these exact names if the existing project has an established model. A provider acceptance response, a delivery callback, and a recipient actually seeing a message are different evidence; do not label acceptance or callback as human receipt. Establish the provider's documented callback meaning before assigning state.
+
+The dangerous window is an ambiguous timeout after a provider may already have accepted a request. Use provider idempotency keys when supported; otherwise define application-level duplicate mitigation and make residual duplicate risk observable.
+
+Retries need a bounded policy. Avoid retry storms during provider outages and respect provider rate limits. Old notification jobs may become irrelevant after corrections or policy changes; define whether they are canceled, superseded or sent with updated content. If recipient, content, timing, consent/permission, correction or opt-out policy is missing, return the exact question to main; do not invent school policy or claim regulatory compliance. Treat provider/API contract questions as API ownership, deployment/credential operations as DevOps, and event-to-notification trigger policy as attendance-domain ownership.

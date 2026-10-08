@@ -1,6 +1,6 @@
 # Pi subagent extension
 
-Run named specialists in isolated Pi subprocesses while keeping the main conversation available. This profile targets Pi 1.0.4 and uses the 18 definitions in `~/.pi/agent/agents/`; these are the installed roles, not the upstream example's planner/worker set.
+Run named specialists in isolated Pi subprocesses while keeping the main conversation available. This profile targets Pi 1.0.4 and uses the 23 definitions in `~/.pi/agent/agents/`; these are the installed roles, not the upstream example's planner/worker set. RFID attendance-domain specialists advise on unresolved business semantics, while the release engineer owns only selected SHIP/LEARN work.
 
 ## Dispatch and results
 
@@ -54,7 +54,7 @@ Literal steering phrases such as `stop for a bit` are converted to pauses; use e
 
 ## Explicit code-role integrations
 
-Automatic extension/MCP/skill/prompt discovery is disabled in children. `code-integrations.ts` explicitly loads these resources for the 17 roles in `integrations.json`; statusline setup is excluded:
+Automatic extension/MCP/skill/prompt discovery is disabled in children. `code-integrations.ts` explicitly loads these resources for the 22 roles in `integrations.json`; statusline setup is excluded:
 
 | Integration | Actual worker behavior |
 | --- | --- |
@@ -65,7 +65,7 @@ Automatic extension/MCP/skill/prompt discovery is disabled in children. `code-in
 
 Ponytail defaults to `full` unless its package config/environment changes that default. New children do not inherit the main session's transient `/ponytail` mode. Advice cannot override requirements, assigned role authority, candidate boundaries or required checks, and does not require additional audit/review agents.
 
-Earlier integration checks covered all 17 role argument lists and an isolated Ponytail extension hook (one load, prompt injection, no extension errors or nested subagent tool). The current worker tool restriction is checked separately against both implementation role files and the effective dispatch allowlist. These checks do not prove model behavior or filesystem isolation.
+Earlier integration checks covered all integrated role argument lists and an isolated Ponytail extension hook (one load, prompt injection, no extension errors or nested subagent tool). The current worker tool restriction is checked separately against both implementation role files and the effective dispatch allowlist. These checks do not prove model behavior or filesystem isolation.
 
 ## Candidate and reference paths
 

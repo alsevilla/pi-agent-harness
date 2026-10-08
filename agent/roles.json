@@ -45,7 +45,7 @@
     "model": "gpt-6-luna",
     "fallbackModel": "github-copilot/gpt-6-luna",
     "thinking": "low",
-    "tools": "read, grep, find, ls, bash, powershell, edit, write"
+    "tools": "read, grep, find, ls, bash, powershell, edit"
   },
   {
     "name": "hardware-integration",
@@ -93,7 +93,7 @@
     "model": "gpt-6-luna",
     "fallbackModel": "github-copilot/gpt-6-luna",
     "thinking": "low",
-    "tools": "read, grep, find, ls, bash, powershell, edit, write"
+    "tools": "read, grep, find, ls, bash, powershell, edit"
   },
   {
     "name": "scout",
@@ -142,5 +142,45 @@
     "fallbackModel": "github-copilot/gpt-6-luna",
     "thinking": "medium",
     "tools": "read, grep, find, ls, bash, powershell"
+  },
+  {
+    "name": "attendance-domain-specialist",
+    "provider": "openai-codex",
+    "model": "gpt-6.1-sol",
+    "fallbackModel": "github-copilot/gpt-6-sol",
+    "thinking": "medium",
+    "tools": "read, grep, find, ls, bash, powershell"
+  },
+  {
+    "name": "event-reconciliation-specialist",
+    "provider": "openai-codex",
+    "model": "gpt-6.1-sol",
+    "fallbackModel": "github-copilot/gpt-6-sol",
+    "thinking": "medium",
+    "tools": "read, grep, find, ls, bash, powershell"
+  },
+  {
+    "name": "messaging-specialist",
+    "provider": "openai-codex",
+    "model": "gpt-6-luna",
+    "fallbackModel": "github-copilot/gpt-6-luna",
+    "thinking": "medium",
+    "tools": "read, grep, find, ls, bash, powershell"
+  },
+  {
+    "name": "privacy-compliance-specialist",
+    "provider": "openai-codex",
+    "model": "gpt-6.1-sol",
+    "fallbackModel": "github-copilot/gpt-6-sol",
+    "thinking": "medium",
+    "tools": "read, grep, find, ls, bash, powershell"
+  },
+  {
+    "name": "release-engineer",
+    "provider": "openai-codex",
+    "model": "gpt-6-luna",
+    "fallbackModel": "github-copilot/gpt-6-luna",
+    "thinking": "medium",
+    "tools": "read, grep, find, ls, bash, powershell, edit"
   }
 ]

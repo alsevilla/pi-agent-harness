@@ -1,6 +1,6 @@
 # Pi agent harness
 
-The active modular profile is in [agent/](agent/README.md). It contains 18 named agent roles, selectively loaded engineering/frontend/backend skills, background worker controls and a live inspector, with Serena, Graphify and QMD integrations.
+The active modular profile is in [agent/](agent/README.md). It contains 23 named agent roles, selectively loaded engineering/frontend/backend/RFID-attendance skills, background worker controls and a live inspector, with Serena, Graphify and QMD integrations.
 
 Follow [agent/README.md](agent/README.md) to install the profile and configure direct Claude subscription and ChatGPT/Codex sign-in. CLIProxyAPI is not required.
 
