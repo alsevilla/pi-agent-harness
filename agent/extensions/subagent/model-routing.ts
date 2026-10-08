@@ -1,15 +1,11 @@
-export function normalizeModelRef(model: string): string {
-	return model
-		.replace(/(^|\/)claude-sonnet-5(?:-5|\.5)$/, "$1claude-sonnet-5");
-}
-
+// Model IDs are catalog identifiers: trimmed, otherwise passed through verbatim (no aliasing).
 export function parseFallbackModels(value: string | undefined): string[] {
-	return [...new Set((value ?? "").split("||").map((model) => normalizeModelRef(model.trim())).filter(Boolean))];
+	return [...new Set((value ?? "").split("||").map((model) => model.trim()).filter(Boolean))];
 }
 
 // fallbackModels is already parsed at the config boundary (parseFallbackModels); this only drops the primary.
 export function getFallbackSequence(primaryModel: string | undefined, fallbackModels: readonly string[] = []): string[] {
-	const primary = primaryModel ? normalizeModelRef(primaryModel.trim()) : undefined;
+	const primary = primaryModel?.trim();
 	return fallbackModels.filter((model) => model !== primary);
 }
 

@@ -29,7 +29,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
-import { getFallbackSequence, nextFallbackModel, normalizeModelRef } from "./model-routing.ts";
+import { getFallbackSequence, nextFallbackModel } from "./model-routing.ts";
 import { configureCodeIntegrations, CODE_NAVIGATION_GUIDANCE, graphReferenceGuidance } from "./code-integrations.ts";
 import { cargoEnvDefaults } from "./build-env.ts";
 
@@ -193,7 +193,7 @@ async function runSingleAgent(
 
 	const args: string[] = ["--mode", dispatchDefaults.jobId ? "rpc" : "json", ...(dispatchDefaults.jobId ? [] : ["-p"]), "--no-session", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--offline"];
 	const inheritsDispatchConfig = !agent.model;
-	const model = attemptModel ?? agent.model ?? (dispatchDefaults.model ? normalizeModelRef(dispatchDefaults.model) : undefined);
+	const model = attemptModel ?? agent.model ?? dispatchDefaults.model;
 	const workerController = new AbortController();
     const parentSignal = signal;
     const parentAbort = () => workerController.abort();

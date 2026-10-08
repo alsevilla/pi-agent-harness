@@ -34,6 +34,6 @@ test("ordered fallback runtime regression passes under installed Node", { timeou
 	const output = result.output.trim();
 	assert.equal(result.error, undefined, `failed to launch "node --test ${runner}" (cwd ${testsDir}): ${result.error?.message}\n${output}`);
 	assert.equal(result.status, 0, `"node --test ${runner}" exited with ${result.status ?? result.signal}\n${output}`);
-	// Pass count guards against a runner that loads cleanly but silently loses discovery/guard coverage (11 tests today).
-	assert.match(output, /(?:\u2139|#) pass 11\b/, `expected 11 passing runtime tests\n${output}`);
+	// Pass count guards against a runner that loads cleanly but silently loses discovery/guard coverage (14 tests today).
+	assert.match(output, /(?:\u2139|#) pass 14\b/, `expected 11 passing runtime tests\n${output}`);
 });

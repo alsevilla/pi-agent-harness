@@ -5,7 +5,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
-import { normalizeModelRef, parseFallbackModels } from "./model-routing.ts";
+import { parseFallbackModels } from "./model-routing.ts";
 
 export type AgentScope = "user" | "project" | "both";
 
@@ -64,29 +64,43 @@ function parseToolList(value: unknown): string[] | undefined {
 	return tools.length > 0 ? tools : undefined;
 }
 
-function loadRoleFallbacks(): Map<string, string[]> {
-	const fallbacks = new Map<string, string[]>();
+/** Fields roles.json defines for a user role; an omitted field keeps the definition file's frontmatter value. */
+interface RoleOverride {
+	model?: string;
+	fallbackModel?: string[];
+	thinking?: string;
+	tools?: string[];
+}
+
+/** roles.json is the canonical registry for user roles: provider + model are joined into one catalog ID. */
+function loadRoleRegistry(): Map<string, RoleOverride> {
+	const roles = new Map<string, RoleOverride>();
 	try {
-		const roles: unknown = JSON.parse(fs.readFileSync(path.join(getAgentDir(), "roles.json"), "utf-8"));
-		if (Array.isArray(roles)) {
-			for (const role of roles) {
+		const registry: unknown = JSON.parse(fs.readFileSync(path.join(getAgentDir(), "roles.json"), "utf-8"));
+		if (Array.isArray(registry)) {
+			for (const role of registry) {
 				if (typeof role !== "object" || role === null) continue;
-				const entry = role as { name?: unknown; fallbackModel?: unknown };
-				if (typeof entry.name === "string" && typeof entry.fallbackModel === "string") {
-					fallbacks.set(entry.name, parseFallbackModels(entry.fallbackModel));
-				}
+				const entry = role as { name?: unknown; provider?: unknown; model?: unknown; fallbackModel?: unknown; thinking?: unknown; tools?: unknown };
+				if (typeof entry.name !== "string") continue;
+				const model = typeof entry.model === "string" ? entry.model.trim() : "";
+				roles.set(entry.name, {
+					model: model && typeof entry.provider === "string" && !model.includes("/") ? `${entry.provider}/${model}` : model || undefined,
+					fallbackModel: typeof entry.fallbackModel === "string" ? parseFallbackModels(entry.fallbackModel) : undefined,
+					thinking: typeof entry.thinking === "string" ? entry.thinking : undefined,
+					tools: parseToolList(entry.tools),
+				});
 			}
 		}
 	} catch {
-		// Missing or invalid role metadata disables registry fallbacks; frontmatter remains usable.
+		// Missing or invalid registry leaves every user definition on its own frontmatter.
 	}
-	return fallbacks;
+	return roles;
 }
 
 function loadAgentsFromDir(
 	dir: string,
 	source: "user" | "project",
-	roleFallbacks: ReadonlyMap<string, string[]> = new Map(),
+	roles: ReadonlyMap<string, RoleOverride> = new Map(),
 ): AgentConfig[] {
 	const agents: AgentConfig[] = [];
 
@@ -119,15 +133,16 @@ function loadAgentsFromDir(
 			continue;
 		}
 
+		const role = roles.get(frontmatter.name);
 		agents.push({
 			name: frontmatter.name,
 			description: frontmatter.description,
-			tools: parseToolList(frontmatter.tools),
-			model: typeof frontmatter.model === "string" ? normalizeModelRef(frontmatter.model) : undefined,
+			tools: role?.tools ?? parseToolList(frontmatter.tools),
+			model: role?.model ?? (typeof frontmatter.model === "string" ? frontmatter.model : undefined),
 			fallbackModel:
-				roleFallbacks.get(frontmatter.name) ??
+				role?.fallbackModel ??
 				(typeof frontmatter.fallbackModel === "string" ? parseFallbackModels(frontmatter.fallbackModel) : undefined),
-			thinking: typeof frontmatter.thinking === "string" ? frontmatter.thinking : undefined,
+			thinking: role?.thinking ?? (typeof frontmatter.thinking === "string" ? frontmatter.thinking : undefined),
 			systemPrompt: body,
 			source,
 			filePath,
@@ -161,7 +176,7 @@ export function discoverAgents(cwd: string, scope: AgentScope): AgentDiscoveryRe
 	const userDir = path.join(getAgentDir(), "agents");
 	const projectAgentsDir = findNearestProjectAgentsDir(cwd);
 
-	const userAgents = scope === "project" ? [] : loadAgentsFromDir(userDir, "user", loadRoleFallbacks());
+	const userAgents = scope === "project" ? [] : loadAgentsFromDir(userDir, "user", loadRoleRegistry());
 	const projectAgents = scope === "user" || !projectAgentsDir ? [] : loadAgentsFromDir(projectAgentsDir, "project");
 
 	const agentMap = new Map<string, AgentConfig>();

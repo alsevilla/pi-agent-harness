@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getFallbackSequence, nextFallbackModel, normalizeModelRef, parseFallbackModels, shouldRetryWithFallback } from "../model-routing.ts";
+import { getFallbackSequence, nextFallbackModel, parseFallbackModels, shouldRetryWithFallback } from "../model-routing.ts";
 
 test("fallback strings parse as ordered normalized model sequences", () => {
   assert.deepEqual(parseFallbackModels(" openai-codex/gpt-6-luna || || github-copilot/gpt-6-luna || openai-codex/gpt-6-luna "), [
@@ -11,10 +11,16 @@ test("fallback strings parse as ordered normalized model sequences", () => {
   assert.deepEqual(getFallbackSequence("anthropic/claude-haiku-5-5", parseFallbackModels("anthropic/claude-haiku-5-5 || github-copilot/gpt-6-luna")), ["github-copilot/gpt-6-luna"]);
 });
 
-test("fallback sequence takes parsed arrays, defaults to none, and skips the normalized primary", () => {
-  assert.deepEqual(getFallbackSequence("github-copilot/claude-sonnet-5.5", ["github-copilot/claude-sonnet-5", "openai-codex/gpt-6-luna"]), ["openai-codex/gpt-6-luna"]);
+test("fallback sequence takes parsed arrays, defaults to none, and skips only the exact primary", () => {
+  assert.deepEqual(getFallbackSequence("github-copilot/claude-sonnet-5.5", ["github-copilot/claude-sonnet-5", "openai-codex/gpt-6-luna"]), ["github-copilot/claude-sonnet-5", "openai-codex/gpt-6-luna"]);
+  assert.deepEqual(getFallbackSequence("github-copilot/claude-sonnet-5.5", ["github-copilot/claude-sonnet-5.5", "github-copilot/claude-sonnet-5"]), ["github-copilot/claude-sonnet-5"]);
   assert.deepEqual(getFallbackSequence("openai-codex/gpt-6-luna", undefined), []);
   assert.deepEqual(getFallbackSequence("openai-codex/gpt-6-luna", []), []);
+});
+
+test("literal Sonnet 5.5 IDs are preserved verbatim through fallback parsing and primary matching", () => {
+  assert.deepEqual(parseFallbackModels("anthropic/claude-sonnet-5-5 || github-copilot/claude-sonnet-5.5 || github-copilot/claude-sonnet-5 || anthropic/claude-sonnet-5-5"), ["anthropic/claude-sonnet-5-5", "github-copilot/claude-sonnet-5.5", "github-copilot/claude-sonnet-5"]);
+  assert.deepEqual(getFallbackSequence("anthropic/claude-sonnet-5-5", parseFallbackModels("anthropic/claude-sonnet-5 || anthropic/claude-sonnet-5-5")), ["anthropic/claude-sonnet-5"]);
 });
 
 test("ordered retry policy exhausts on availability errors and never retries task, aborted, or tool results", () => {
@@ -29,8 +35,7 @@ test("ordered retry policy exhausts on availability errors and never retries tas
 });
 
 test("declared GPT-6.1 primary is preserved independently of Copilot fallback", () => {
-  assert.equal(normalizeModelRef("openai-codex/gpt-6.1-sol"), "openai-codex/gpt-6.1-sol");
-  assert.equal(normalizeModelRef("github-copilot/gpt-6-sol"), "github-copilot/gpt-6-sol");
+  assert.deepEqual(parseFallbackModels("openai-codex/gpt-6.1-sol || github-copilot/gpt-6-sol"), ["openai-codex/gpt-6.1-sol", "github-copilot/gpt-6-sol"]);
 });
 
 test("quota fallback cannot replay edits, canceled work or task failures", () => {
