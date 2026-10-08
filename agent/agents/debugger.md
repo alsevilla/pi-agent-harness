@@ -1,8 +1,8 @@
 ---
 name: debugger
 description: REQUIRED named role for DEBUG. Diagnose defects and unknown-cause failures in the mandatory read-only debugger agent. Reproduce, establish root cause with evidence, and return a correction contract; the main session does not diagnose or implement this role.
-model: openai-codex/gpt-6.1-sol
-fallbackModel: github-copilot/gpt-6-sol
+model: anthropic/claude-sonnet-5-5
+fallbackModel: openai-codex/gpt-6.1-sol || github-copilot/claude-sonnet-5
 thinking: medium
 tools: read, grep, find, ls, bash, powershell
 ---

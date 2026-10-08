@@ -152,15 +152,17 @@ test("successful primary runs once for absent, empty and populated fallback sour
 	}
 });
 
-test("primary is normalized before matching and duplicate chain entries are skipped", async () => {
+test("primary is matched literally and duplicate chain entries are skipped", async () => {
 	const fx = setupRoots();
+	const PRIMARY_55 = "github-copilot/claude-sonnet-5.5";
+	const SONNET_5 = "github-copilot/claude-sonnet-5";
 	writeRole(fx.userAgents, "dedupe", {
-		model: "github-copilot/claude-sonnet-5.5",
-		fallbackModel: `"github-copilot/claude-sonnet-5 || ${LUNA} || ${LUNA} || ${COPILOT_LUNA}"`,
+		model: PRIMARY_55,
+		fallbackModel: `"${PRIMARY_55} || ${SONNET_5} || ${LUNA} || ${LUNA} || ${COPILOT_LUNA}"`,
 	});
-	spawnPlan = (model) => (model === LUNA || model === "github-copilot/claude-sonnet-5" ? unavailable() : success());
+	spawnPlan = (model) => ([PRIMARY_55, SONNET_5, LUNA].includes(model) ? unavailable() : success());
 	const result = await run(fx.nested, discover(fx.nested), "dedupe");
-	assert.deepEqual(attempts, ["github-copilot/claude-sonnet-5", LUNA, COPILOT_LUNA]);
+	assert.deepEqual(attempts, [PRIMARY_55, SONNET_5, LUNA, COPILOT_LUNA]);
 	assert.equal(result.exitCode, 0);
 	assert.equal(result.model, COPILOT_LUNA);
 });
@@ -283,4 +285,56 @@ test("discovery precedence: roles.json overrides user frontmatter, project agent
 	assert.deepEqual(await chainOf("user", "legacy"), { chain: [PRIMARY, COPILOT_LUNA], source: "user" });
 	assert.deepEqual(await chainOf("both", "shared"), { chain: [PRIMARY, COPILOT_LUNA, COPILOT_SOL], source: "project" });
 	assert.deepEqual(await chainOf("project", "projonly"), { chain: [PRIMARY, COPILOT_SOL, LUNA], source: "project" });
+});
+
+test("literal claude-sonnet-5-5 survives discovery and the CLI --model argument unchanged", async () => {
+	const fx = setupRoots();
+	const guardDir = path.join(fx.userDir, "npm", "node_modules", "pi-claude-subscription-connector", "extensions");
+	fs.mkdirSync(guardDir, { recursive: true });
+	fs.writeFileSync(path.join(guardDir, "subscription-guard.ts"), "export {};\n");
+	const ANTHROPIC_55 = "anthropic/claude-sonnet-5-5";
+	writeRole(fx.userAgents, "literal55", { model: ANTHROPIC_55, fallbackModel: `"github-copilot/claude-sonnet-5.5"` });
+	const agents = discover(fx.nested);
+	assert.equal(agents.find((a) => a.name === "literal55")?.model, ANTHROPIC_55);
+	assert.deepEqual(agents.find((a) => a.name === "literal55")?.fallbackModel, ["github-copilot/claude-sonnet-5.5"]);
+	spawnPlan = (model) => (model === ANTHROPIC_55 ? unavailable() : success());
+	const result = await run(fx.nested, agents, "literal55");
+	assert.deepEqual(attempts, [ANTHROPIC_55, "github-copilot/claude-sonnet-5.5"]);
+	assert.equal(result.model, "github-copilot/claude-sonnet-5.5");
+	assert.equal(result.exitCode, 0);
+});
+
+test("roles.json is canonical for user fields, overriding drifted frontmatter while keeping description and body", () => {
+	const fx = setupRoots();
+	fs.writeFileSync(
+		path.join(fx.userDir, "roles.json"),
+		JSON.stringify([{ name: "drifted", provider: "openai-codex", model: "gpt-6.1-sol", fallbackModel: "github-copilot/gpt-6-sol", thinking: "medium", tools: "read, grep" }]),
+	);
+	fs.writeFileSync(
+		path.join(fx.userAgents, "drifted.md"),
+		"---\nname: drifted\ndescription: Canonical description kept\nmodel: anthropic/claude-haiku-5-5\nfallbackModel: openai-codex/gpt-6-luna\nthinking: high\ntools: read, bash\n---\nBody stays.\n",
+	);
+	const agent = discover(fx.nested).find((a) => a.name === "drifted");
+	assert.ok(agent);
+	assert.equal(agent.model, "openai-codex/gpt-6.1-sol");
+	assert.deepEqual(agent.fallbackModel, ["github-copilot/gpt-6-sol"]);
+	assert.equal(agent.thinking, "medium");
+	assert.deepEqual(agent.tools, ["read", "grep"]);
+	assert.equal(agent.description, "Canonical description kept");
+	assert.equal(agent.systemPrompt.trim(), "Body stays.");
+});
+
+test("project frontmatter stays authoritative and is not overridden by roles.json", () => {
+	const fx = setupRoots();
+	fs.writeFileSync(
+		path.join(fx.userDir, "roles.json"),
+		JSON.stringify([{ name: "projdrift", provider: "openai-codex", model: "gpt-6.1-sol", fallbackModel: "github-copilot/gpt-6-sol", thinking: "medium", tools: "read" }]),
+	);
+	writeRole(path.join(fx.project, ".pi", "agents"), "projdrift", { model: "anthropic/claude-sonnet-5-5", fallbackModel: '"github-copilot/claude-sonnet-5.5"', thinking: "high", tools: "read, bash" });
+	const agent = discover(fx.nested, "project").find((a) => a.name === "projdrift");
+	assert.ok(agent);
+	assert.equal(agent.model, "anthropic/claude-sonnet-5-5");
+	assert.deepEqual(agent.fallbackModel, ["github-copilot/claude-sonnet-5.5"]);
+	assert.equal(agent.thinking, "high");
+	assert.deepEqual(agent.tools, ["read", "bash"]);
 });
