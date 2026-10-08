@@ -1,8 +1,8 @@
 ---
 name: event-reconciliation-specialist
 description: Read-only RFID event correctness specialist for offline readers, retries, replay, idempotency, duplicate suppression, event identity, ordering, clock skew, acknowledgements, and crash recovery.
-model: openai-codex/gpt-6.1-sol
-fallbackModel: github-copilot/gpt-6-sol
+model: anthropic/claude-sonnet-5-5
+fallbackModel: github-copilot/claude-sonnet-5
 thinking: medium
 tools: read, grep, find, ls, bash, powershell
 ---

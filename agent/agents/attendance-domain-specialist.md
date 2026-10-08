@@ -1,8 +1,8 @@
 ---
 name: attendance-domain-specialist
 description: Read-only RFID school-attendance domain specialist for attendance state transitions, schedules, late/half-day/absent classification, optional lunch, finalization, manual corrections, and domain invariants.
-model: openai-codex/gpt-6.1-sol
-fallbackModel: github-copilot/gpt-6-sol
+model: anthropic/claude-sonnet-5-5
+fallbackModel: github-copilot/claude-sonnet-5
 thinking: medium
 tools: read, grep, find, ls, bash, powershell
 ---

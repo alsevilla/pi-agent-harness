@@ -1,17 +1,17 @@
 [
   {
     "name": "api-specialist",
-    "provider": "openai-codex",
-    "model": "gpt-6-luna",
-    "fallbackModel": "github-copilot/gpt-6-luna",
+    "provider": "anthropic",
+    "model": "claude-haiku-5-5",
+    "fallbackModel": "openai-codex/gpt-6-luna || github-copilot/gpt-6-luna",
     "thinking": "medium",
     "tools": "read, grep, find, ls, bash, powershell"
   },
   {
     "name": "architecture-specialist",
-    "provider": "openai-codex",
-    "model": "gpt-6-luna",
-    "fallbackModel": "github-copilot/gpt-6-luna",
+    "provider": "anthropic",
+    "model": "claude-haiku-5-5",
+    "fallbackModel": "openai-codex/gpt-6-luna || github-copilot/gpt-6-luna",
     "thinking": "medium",
     "tools": "read, grep, find, ls, bash, powershell"
   },
@@ -41,9 +41,9 @@
   },
   {
     "name": "frontend-worker",
-    "provider": "openai-codex",
-    "model": "gpt-6-luna",
-    "fallbackModel": "github-copilot/gpt-6-luna",
+    "provider": "anthropic",
+    "model": "claude-haiku-5-5",
+    "fallbackModel": "openai-codex/gpt-6-luna || github-copilot/gpt-6-luna",
     "thinking": "low",
     "tools": "read, grep, find, ls, bash, powershell, edit"
   },
@@ -89,43 +89,35 @@
   },
   {
     "name": "rust-worker",
-    "provider": "openai-codex",
-    "model": "gpt-6-luna",
-    "fallbackModel": "github-copilot/gpt-6-luna",
+    "provider": "anthropic",
+    "model": "claude-haiku-5-5",
+    "fallbackModel": "openai-codex/gpt-6-luna || github-copilot/gpt-6-luna",
     "thinking": "low",
     "tools": "read, grep, find, ls, bash, powershell, edit"
   },
   {
     "name": "scout",
-    "provider": "openai-codex",
-    "model": "gpt-6-luna",
-    "fallbackModel": "github-copilot/gpt-6-luna",
+    "provider": "anthropic",
+    "model": "claude-haiku-5-5",
+    "fallbackModel": "openai-codex/gpt-6-luna || github-copilot/gpt-6-luna",
     "thinking": "low",
     "tools": "read, grep, find, ls, bash, powershell"
   },
   {
     "name": "security-specialist",
-    "provider": "openai-codex",
-    "model": "gpt-6.1-sol",
-    "fallbackModel": "github-copilot/gpt-6-sol",
+    "provider": "anthropic",
+    "model": "claude-sonnet-5-5",
+    "fallbackModel": "openai-codex/gpt-6.1-sol || github-copilot/claude-sonnet-5",
     "thinking": "medium",
     "tools": "read, grep, find, ls, bash, powershell"
   },
   {
     "name": "sqlite-specialist",
-    "provider": "openai-codex",
-    "model": "gpt-6-luna",
-    "fallbackModel": "github-copilot/gpt-6-luna",
+    "provider": "anthropic",
+    "model": "claude-haiku-5-5",
+    "fallbackModel": "openai-codex/gpt-6-luna || github-copilot/gpt-6-luna",
     "thinking": "medium",
     "tools": "read, grep, find, ls, bash, powershell"
-  },
-  {
-    "name": "statusline-setup",
-    "provider": "openai-codex",
-    "model": "gpt-6-luna",
-    "fallbackModel": "github-copilot/gpt-6-luna",
-    "thinking": "low",
-    "tools": "read, grep, find, ls, bash, powershell, edit, write"
   },
   {
     "name": "test-engineer",
@@ -137,41 +129,41 @@
   },
   {
     "name": "ui-ux-specialist",
-    "provider": "openai-codex",
-    "model": "gpt-6-luna",
-    "fallbackModel": "github-copilot/gpt-6-luna",
+    "provider": "anthropic",
+    "model": "claude-sonnet-5-5",
+    "fallbackModel": "github-copilot/claude-sonnet-5",
     "thinking": "medium",
     "tools": "read, grep, find, ls, bash, powershell"
   },
   {
     "name": "attendance-domain-specialist",
-    "provider": "openai-codex",
-    "model": "gpt-6.1-sol",
-    "fallbackModel": "github-copilot/gpt-6-sol",
+    "provider": "anthropic",
+    "model": "claude-sonnet-5-5",
+    "fallbackModel": "github-copilot/claude-sonnet-5",
     "thinking": "medium",
     "tools": "read, grep, find, ls, bash, powershell"
   },
   {
     "name": "event-reconciliation-specialist",
-    "provider": "openai-codex",
-    "model": "gpt-6.1-sol",
-    "fallbackModel": "github-copilot/gpt-6-sol",
+    "provider": "anthropic",
+    "model": "claude-sonnet-5-5",
+    "fallbackModel": "github-copilot/claude-sonnet-5",
     "thinking": "medium",
     "tools": "read, grep, find, ls, bash, powershell"
   },
   {
     "name": "messaging-specialist",
-    "provider": "openai-codex",
-    "model": "gpt-6-luna",
-    "fallbackModel": "github-copilot/gpt-6-luna",
+    "provider": "anthropic",
+    "model": "claude-haiku-5-5",
+    "fallbackModel": "openai-codex/gpt-6-luna || github-copilot/gpt-6-luna",
     "thinking": "medium",
     "tools": "read, grep, find, ls, bash, powershell"
   },
   {
     "name": "privacy-compliance-specialist",
-    "provider": "openai-codex",
-    "model": "gpt-6.1-sol",
-    "fallbackModel": "github-copilot/gpt-6-sol",
+    "provider": "anthropic",
+    "model": "claude-sonnet-5-5",
+    "fallbackModel": "openai-codex/gpt-6.1-sol || github-copilot/claude-sonnet-5",
     "thinking": "medium",
     "tools": "read, grep, find, ls, bash, powershell"
   },

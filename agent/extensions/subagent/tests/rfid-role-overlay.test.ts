@@ -21,18 +21,33 @@ function frontmatter(name: string) {
   const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   assert.ok(match, `${name}: frontmatter missing`);
   const field = (key: string) => match[1].match(new RegExp(`^${key}:\\s*(.*)$`, "m"))?.[1]?.trim();
-  return { text, tools: field("tools") ?? "", model: field("model"), thinking: field("thinking") };
+  return { text, name: field("name"), tools: field("tools") ?? "", model: field("model"), fallbackModel: field("fallbackModel"), thinking: field("thinking") };
 }
 
-test("RFID overlay registers 23 unique roles", () => {
-  assert.equal(roles.length, 23);
-  assert.equal(new Set(roles.map((r: { name: string }) => r.name)).size, 23);
+test("RFID overlay registers 22 unique roles without statusline-setup", () => {
+  assert.equal(roles.length, 22);
+  assert.equal(new Set(roles.map((r: { name: string }) => r.name)).size, 22);
+  assert.ok(!roles.some((r: { name: string }) => r.name === "statusline-setup"));
+  assert.ok(!fs.existsSync(new URL("../../../agents/statusline-setup.md", import.meta.url)), "statusline-setup definition removed");
+  assert.equal(fs.readdirSync(new URL("../../../agents/", import.meta.url)).filter((f) => f.endsWith(".md")).length, 22);
   for (const name of newRoles) assert.ok(roles.some((r: { name: string }) => r.name === name), name);
 });
 
 test("all five new roles receive standard code navigation integrations", () => {
   for (const name of newRoles) assert.ok(integrations.roles.includes(name), name);
-  assert.equal(integrations.roles.length, 22); // every role except statusline-setup
+  assert.equal(integrations.roles.length, 22);
+  assert.deepEqual([...integrations.roles].sort(), roles.map((r: { name: string }) => r.name).sort());
+});
+
+test("every role definition agrees with the final user registry", () => {
+  for (const role of roles) {
+    const fm = frontmatter(role.name);
+    assert.equal(fm.name, role.name, `${role.name}: name`);
+    assert.equal(fm.model, `${role.provider}/${role.model}`, `${role.name}: primary model`);
+    assert.equal(fm.fallbackModel, role.fallbackModel, `${role.name}: fallbackModel`);
+    assert.equal(fm.thinking, role.thinking, `${role.name}: thinking`);
+    assert.equal(fm.tools, role.tools, `${role.name}: tools`);
+  }
 });
 
 test("all five new role definitions link their assigned module and preserve model metadata", () => {

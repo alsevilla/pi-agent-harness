@@ -1,8 +1,8 @@
 ---
 name: messaging-specialist
 description: Read-only messaging reliability specialist for SMS job lifecycle, provider adapters, retries, idempotency, rate limits, delivery callbacks, duplicate suppression, dead letters, and attendance-notification separation.
-model: openai-codex/gpt-6-luna
-fallbackModel: github-copilot/gpt-6-luna
+model: anthropic/claude-haiku-5-5
+fallbackModel: openai-codex/gpt-6-luna || github-copilot/gpt-6-luna
 thinking: medium
 tools: read, grep, find, ls, bash, powershell
 ---

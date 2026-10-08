@@ -1,8 +1,8 @@
 ---
 name: privacy-compliance-specialist
 description: Read-only privacy/data-governance specialist for student and parent PII, RFID identifiers, attendance history, retention, exports, logs, backups, auditability, minimization, and deletion/anonymization requirements.
-model: openai-codex/gpt-6.1-sol
-fallbackModel: github-copilot/gpt-6-sol
+model: anthropic/claude-sonnet-5-5
+fallbackModel: openai-codex/gpt-6.1-sol || github-copilot/claude-sonnet-5
 thinking: medium
 tools: read, grep, find, ls, bash, powershell
 ---
