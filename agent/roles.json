@@ -121,9 +121,9 @@
   },
   {
     "name": "test-engineer",
-    "provider": "openai-codex",
-    "model": "gpt-6-luna",
-    "fallbackModel": "github-copilot/gpt-6-luna",
+    "provider": "anthropic",
+    "model": "claude-haiku-5-5",
+    "fallbackModel": "openai-codex/gpt-6-luna || github-copilot/gpt-6-luna",
     "thinking": "low",
     "tools": "read, grep, find, ls, bash, powershell"
   },
