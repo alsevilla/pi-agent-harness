@@ -1,6 +1,6 @@
 # Pi subagent extension
 
-Run named specialists in isolated Pi subprocesses while keeping the main conversation available. This profile targets Pi 1.0.4 and uses the 18 definitions in `~/.pi/agent/agents/`; these are the installed roles, not the upstream example's planner/worker set.
+Run named specialists in isolated Pi subprocesses while keeping the main conversation available. This profile targets Pi 1.0.4 and uses the 22 definitions in `~/.pi/agent/agents/`; these are the installed roles, not the upstream example's planner/worker set. RFID attendance-domain specialists advise on unresolved business semantics, while the release engineer owns only selected SHIP/LEARN work.
 
 ## Dispatch and results
 
@@ -16,7 +16,7 @@ Supply the absolute candidate `cwd` and a self-contained task packet: requiremen
 
 Runs are background jobs by default. A `bg-N` receipt acknowledges dispatch; it does not prove implementation or testing finished. Completion results arrive automatically without polling model calls. `background: false` requests a blocking run and does not support background steering. Successful background receipts are hidden in collapsed main-screen history; expanded history can show the job ID. Errors and foreground results remain visible.
 
-Model and thinking come from role frontmatter. User fallback models come from `roles.json`; project roles can declare `fallbackModel`. Availability failures may retry once before any tool activity. Task errors, aborts and errors after tool activity are not retried. Native GPT IDs, including `gpt-6.1-sol`, are preserved. Sonnet 5.5 spellings normalize to `claude-sonnet-5`; provider availability remains an external requirement.
+Model and thinking come from role frontmatter. User fallback models come from `roles.json`; project roles can declare `fallbackModel`. Either fallback field accepts a single model or an ordered `||`-delimited chain. Each member is trimmed and normalized; empty, duplicate, and primary-model entries are skipped. The finite chain is attempted in order only for provider-availability failures before any tool activity. Task errors, aborts, and errors after tool activity are never retried. Native GPT IDs, including `gpt-6.1-sol`, are preserved. Sonnet 5.5 spellings normalize to `claude-sonnet-5`; provider availability remains an external requirement.
 
 ## Live inspector
 
@@ -54,7 +54,7 @@ Literal steering phrases such as `stop for a bit` are converted to pauses; use e
 
 ## Explicit code-role integrations
 
-Automatic extension/MCP/skill/prompt discovery is disabled in children. `code-integrations.ts` explicitly loads these resources for the 17 roles in `integrations.json`; statusline setup is excluded:
+Automatic extension/MCP/skill/prompt discovery is disabled in children. `code-integrations.ts` explicitly loads these resources for the 22 roles in `integrations.json`; the `statusline-setup` role was removed and is not part of the registry or integration set:
 
 | Integration | Actual worker behavior |
 | --- | --- |
@@ -65,7 +65,7 @@ Automatic extension/MCP/skill/prompt discovery is disabled in children. `code-in
 
 Ponytail defaults to `full` unless its package config/environment changes that default. New children do not inherit the main session's transient `/ponytail` mode. Advice cannot override requirements, assigned role authority, candidate boundaries or required checks, and does not require additional audit/review agents.
 
-Earlier integration checks covered all 17 role argument lists and an isolated Ponytail extension hook (one load, prompt injection, no extension errors or nested subagent tool). The current worker tool restriction is checked separately against both implementation role files and the effective dispatch allowlist. These checks do not prove model behavior or filesystem isolation.
+Earlier integration checks covered all integrated role argument lists and an isolated Ponytail extension hook (one load, prompt injection, no extension errors or nested subagent tool). The current worker tool restriction is checked separately against both implementation role files and the effective dispatch allowlist. These checks do not prove model behavior or filesystem isolation.
 
 ## Candidate and reference paths
 
@@ -94,3 +94,6 @@ The parent policy is a short routing/authority contract. It does not preload ope
 Rust and frontend workers retain precise `edit`; `write` and all six Serena mutation tools are excluded. `integrations.json` controls the automatic grants, so this restriction needs no dispatcher code change. Removing those tools does not make implementation read-only: workers must inspect and edit only their assigned scope, preserving unrelated code/tests. Shell tools can still write; this is a tool-list restriction, not a filesystem sandbox, and custom project agent definitions must preserve it. The focused regression checks actual worker frontmatters against fixed mutation names and retains read-only integration tools.
 
 Restart Pi and cancel/relaunch previously started workers to use the revised configuration. Pausing/resuming an existing worker retains its old tool list.
+
+## Test invocation
+`bun test agent/extensions/subagent` runs the fallback runtime regression through `tests/fallback-runtime.test.ts`, which launches `tests/fallback-runtime.node.ts` with the installed `node --test`; Bun 1.4.2 does not provide `node:module` `registerHooks`. The runtime regression's tested baseline is Node 24.20.0 (`registerHooks` and native TypeScript); older Node versions are unverified. Run it directly with `node --test agent/extensions/subagent/tests/fallback-runtime.node.ts`.

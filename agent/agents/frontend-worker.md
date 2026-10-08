@@ -1,8 +1,8 @@
 ---
 name: frontend-worker
 description: Implements authorized SolidJS and TypeScript frontend changes from an accepted design and task contract, with focused behavioral tests.
-model: openai-codex/gpt-6-luna
-fallbackModel: github-copilot/gpt-6-luna
+model: anthropic/claude-haiku-5-5
+fallbackModel: openai-codex/gpt-6-luna || github-copilot/gpt-6-luna
 thinking: low
 tools: read, grep, find, ls, bash, powershell, edit
 ---

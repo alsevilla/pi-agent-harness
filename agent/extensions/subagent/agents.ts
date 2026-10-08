@@ -5,7 +5,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
-import { normalizeModelRef } from "./model-routing.ts";
+import { normalizeModelRef, parseFallbackModels } from "./model-routing.ts";
 
 export type AgentScope = "user" | "project" | "both";
 
@@ -14,7 +14,7 @@ export interface AgentConfig {
 	description: string;
 	tools?: string[];
 	model?: string;
-	fallbackModel?: string;
+	fallbackModel?: string[];
 	thinking?: string;
 	systemPrompt: string;
 	source: "user" | "project";
@@ -64,8 +64,8 @@ function parseToolList(value: unknown): string[] | undefined {
 	return tools.length > 0 ? tools : undefined;
 }
 
-function loadRoleFallbacks(): Map<string, string> {
-	const fallbacks = new Map<string, string>();
+function loadRoleFallbacks(): Map<string, string[]> {
+	const fallbacks = new Map<string, string[]>();
 	try {
 		const roles: unknown = JSON.parse(fs.readFileSync(path.join(getAgentDir(), "roles.json"), "utf-8"));
 		if (Array.isArray(roles)) {
@@ -73,7 +73,7 @@ function loadRoleFallbacks(): Map<string, string> {
 				if (typeof role !== "object" || role === null) continue;
 				const entry = role as { name?: unknown; fallbackModel?: unknown };
 				if (typeof entry.name === "string" && typeof entry.fallbackModel === "string") {
-					fallbacks.set(entry.name, normalizeModelRef(entry.fallbackModel));
+					fallbacks.set(entry.name, parseFallbackModels(entry.fallbackModel));
 				}
 			}
 		}
@@ -86,7 +86,7 @@ function loadRoleFallbacks(): Map<string, string> {
 function loadAgentsFromDir(
 	dir: string,
 	source: "user" | "project",
-	roleFallbacks: ReadonlyMap<string, string> = new Map(),
+	roleFallbacks: ReadonlyMap<string, string[]> = new Map(),
 ): AgentConfig[] {
 	const agents: AgentConfig[] = [];
 
@@ -126,7 +126,7 @@ function loadAgentsFromDir(
 			model: typeof frontmatter.model === "string" ? normalizeModelRef(frontmatter.model) : undefined,
 			fallbackModel:
 				roleFallbacks.get(frontmatter.name) ??
-				(typeof frontmatter.fallbackModel === "string" ? normalizeModelRef(frontmatter.fallbackModel) : undefined),
+				(typeof frontmatter.fallbackModel === "string" ? parseFallbackModels(frontmatter.fallbackModel) : undefined),
 			thinking: typeof frontmatter.thinking === "string" ? frontmatter.thinking : undefined,
 			systemPrompt: body,
 			source,

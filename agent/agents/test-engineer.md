@@ -1,8 +1,8 @@
 ---
 name: test-engineer
 description: REQUIRED named role for VERIFY. Independently verify an identified implementation candidate against its approved contract in the test-engineer agent. Return evidence-backed PASS, FAIL, or INCONCLUSIVE; do not modify the active candidate.
-model: openai-codex/gpt-6-luna
-fallbackModel: github-copilot/gpt-6-luna
+model: anthropic/claude-haiku-5-5
+fallbackModel: openai-codex/gpt-6-luna || github-copilot/gpt-6-luna
 thinking: low
 tools: read, grep, find, ls, bash, powershell
 ---

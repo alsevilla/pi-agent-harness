@@ -6,8 +6,8 @@ This repository starts from a fresh source snapshot. The retired root-level stac
 
 ## Included
 
-- 18 named agent roles with explicit models, thinking levels and delegation boundaries.
-- Three modular skill routers: engineering-harness, frontend and backend. Each loads only the relevant module guidance.
+- 22 named agent roles with explicit models, thinking levels and delegation boundaries, including four read-only RFID attendance-domain specialists and a scoped release engineer.
+- Four modular skill routers: engineering-harness, frontend, backend and RFID attendance. Each loads only the relevant module guidance.
   Main loads the harness once per session, reuses available guidance across tasks and reads only missing relevant sections. Queue-only requests record work for later without starting domain reads or workers; changed or lost guidance is reread when needed.
 - Background subagents with steering, enforced pause/resume/cancel, a compact active-worker panel and a bordered live inspector. Completed workers remain inspectable in history.
 - Read-only Serena navigation in code workers, precise `edit` for implementation workers, existing Graphify artifact references across worktrees, and bounded QMD BM25 retrieval from an explicitly named shared index.
@@ -54,9 +54,9 @@ AGENTS.md retains routing, authority, recovery ownership, pause controls, eviden
 
 Workers report RED and GREEN commands/results for meaningful behavior, or an explained exception with replacement evidence. Review checks that evidence without duplicating worker implementation. These are prompt requirements; the runtime does not enforce test-first order. Independent verification stays conditional.
 
-Only five profile skills are registered: engineering-harness, frontend, backend, browser and graphify. Frontend/backend modules remain references, with SolidJS guards around cross-framework examples. The inherited duplicate browser and graphify-pi package skill remain disabled; native extensions remain enabled. Human questions use the local native-dialog extension, with no external ask-user package or extra skill. Do not delete useful framework-independent design modules merely because some examples use another framework.
+Only six profile skills are registered: engineering-harness, frontend, backend, RFID attendance, browser and graphify. Frontend/backend modules remain references, with SolidJS guards around cross-framework examples. The inherited duplicate browser and graphify-pi package skill remain disabled; native extensions remain enabled. Human questions use the local native-dialog extension, with no external ask-user package or extra skill. Do not delete useful framework-independent design modules merely because some examples use another framework.
 
-Compatibility was checked against the installed Pi 1.0.4 resource loader, all 18 role definitions, registry/frontmatter agreement, referenced module paths and explicit worker integrations. Smaller instruction text does not prove a measured reduction in billed tokens.
+Compatibility was checked against the installed Pi 1.0.4 resource loader, all 22 role definitions, registry/frontmatter agreement, referenced module paths and explicit worker integrations. Smaller instruction text does not prove a measured reduction in billed tokens.
 
 See [VALIDATION.md](VALIDATION.md) for the October 7, 2026 regression pass, including live Serena/QMD checks and the distinction between mock-worker verification and provider reliability.
 

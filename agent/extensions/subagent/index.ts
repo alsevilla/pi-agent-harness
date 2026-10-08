@@ -29,7 +29,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
-import { normalizeModelRef, shouldRetryWithFallback } from "./model-routing.ts";
+import { getFallbackSequence, nextFallbackModel, normalizeModelRef } from "./model-routing.ts";
 import { configureCodeIntegrations, CODE_NAVIGATION_GUIDANCE, graphReferenceGuidance } from "./code-integrations.ts";
 import { cargoEnvDefaults } from "./build-env.ts";
 
@@ -173,7 +173,7 @@ async function runSingleAgent(
 	onUpdate: OnUpdateCallback | undefined,
 	makeDetails: (results: SingleResult[]) => SubagentDetails,
 	attemptModel?: string,
-	fallbackAttempted = false,
+	fallbackModels?: string[],
 ): Promise<SingleResult> {
 	const agent = agents.find((a) => a.name === agentName);
 
@@ -381,21 +381,16 @@ async function runSingleAgent(
         if (worker) dispatchDefaults.monitor?.store.finish(worker.id, wasAborted ? "aborted" : isFailedResult(currentResult) ? "failed" : "completed", wasAborted ? "Subagent was aborted" : isFailedResult(currentResult) ? getResultOutput(currentResult) : undefined);
         if (wasAborted && dispatchDefaults.jobId) { currentResult.stopReason = "aborted"; currentResult.errorMessage = "Subagent was stopped"; return currentResult; }
 		if (wasAborted) throw new Error("Subagent was aborted");
-		if (
-			!fallbackAttempted &&
-			shouldRetryWithFallback(
-				{
-					...currentResult,
-					output: getFinalOutput(currentResult.messages),
-					toolActivity: currentResult.toolActivity || currentResult.messages.some(
-						(message) => message.role === "toolResult" || (message.role === "assistant" && message.content.some((part) => part.type === "toolCall")),
-					),
-				},
-				model,
-				agent.fallbackModel,
-				wasAborted,
-			)
-		) {
+		const remainingFallbacks = fallbackModels ?? getFallbackSequence(model, agent.fallbackModel);
+		const retryResult = {
+			...currentResult,
+			output: getFinalOutput(currentResult.messages),
+			toolActivity: currentResult.toolActivity || currentResult.messages.some(
+				(message) => message.role === "toolResult" || (message.role === "assistant" && message.content.some((part) => part.type === "toolCall")),
+			),
+		};
+		const nextModel = nextFallbackModel(retryResult, remainingFallbacks, wasAborted);
+		if (nextModel) {
 			const primaryError = currentResult.errorMessage || currentResult.stderr || getFinalOutput(currentResult.messages);
             const updates = worker ? dispatchDefaults.runtime?.steeringFor(worker.id) ?? [] : [];
 			const fallbackResult = await runSingleAgent(
@@ -409,10 +404,10 @@ async function runSingleAgent(
 				signal,
 				onUpdate,
 				makeDetails,
-				agent.fallbackModel,
-				true,
+				nextModel,
+				remainingFallbacks.slice(1),
 			);
-			fallbackResult.stderr = `Primary model ${model ?? "(inherited)"} failed; retried with ${agent.fallbackModel}. ${primaryError}\n${fallbackResult.stderr}`;
+			fallbackResult.stderr = `Model ${model ?? "(inherited)"} failed; retried with ${nextModel}. ${primaryError}\n${fallbackResult.stderr}`;
 			for (const key of ["input", "output", "cacheRead", "cacheWrite", "cost", "turns"] as const) {
 				fallbackResult.usage[key] += currentResult.usage[key];
 			}
