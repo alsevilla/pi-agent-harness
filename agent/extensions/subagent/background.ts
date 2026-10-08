@@ -2,11 +2,13 @@ import * as fs from "node:fs";
 import type { ChildProcess } from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { WorkerMonitor } from "./monitor.ts";
+import { DecisionRelay, decisionPayload, formatDecisionNotice, type DecisionAction, type DecisionNotice, type DecisionRecord, type DecisionSettlement } from "./decision-relay-state.ts";
 
 export class RpcWorker {
   private sequence = 0;
   private pending = new Map<string, {resolve: (value: any) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>}>();
   closed = false;
+  private writes = new Set<(error: Error) => void>(); // decision responses whose stream write has not been confirmed
   constructor(readonly proc: ChildProcess, readonly controlPath?: string) { proc.stdin?.on("error", error => this.close(error.message)); }
   send(type: string, message?: string): Promise<any> {
     if (this.closed || !this.proc.stdin?.writable) return Promise.reject(new Error("Worker has finished or disconnected"));
@@ -17,6 +19,24 @@ export class RpcWorker {
       this.proc.stdin!.write(JSON.stringify({id, type, ...(message === undefined ? {} : {message})}) + "\n", error => {
         if (error) { const p = this.pending.get(id); if (p) { clearTimeout(p.timer); this.pending.delete(id); reject(error); } }
       });
+    });
+  }
+  // Delivers one held decision dialog's response. Resolves only when the stream confirms the write; rejects when stdin is closed, missing, failing or the worker closes first.
+  respond(id: string, body: {value: string} | {cancelled: true}): Promise<void> {
+    const stdin = this.proc.stdin;
+    if (this.closed || !stdin?.writable) return Promise.reject(new Error("worker input is closed; unavailable"));
+    return new Promise<void>((resolve, reject) => {
+      const fail = (error: Error) => { if (this.writes.delete(fail)) reject(error); };
+      this.writes.add(fail);
+      try {
+        stdin.write(JSON.stringify({type: "extension_ui_response", id, ...body}) + "\n", (error?: Error | null) => {
+          if (!this.writes.delete(fail)) return; // close already settled this write
+          if (error) reject(error); else resolve();
+        });
+      } catch (error) {
+        this.writes.delete(fail);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
     });
   }
   setPaused(paused: boolean) {
@@ -33,6 +53,7 @@ export class RpcWorker {
     this.closed = true;
     for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(new Error(reason)); }
     this.pending.clear();
+    for (const fail of [...this.writes]) fail(new Error("worker closed before the response write was confirmed: " + reason));
   }
 }
 
@@ -49,11 +70,12 @@ export class BackgroundWorkers {
   private sequence = 0;
   private slots = 0;
   private queue: {signal?: AbortSignal; resolve: (release: () => void) => void; reject: (error: Error) => void; abort: () => void}[] = [];
-  constructor(private pi: ExtensionAPI, readonly monitor: WorkerMonitor) {
+  constructor(private pi: ExtensionAPI, readonly monitor: WorkerMonitor, private decisions = new DecisionRelay()) {
     pi.on("session_start", () => this.reset());
     pi.on("session_shutdown", () => this.reset());
   }
   reset() {
+    this.settleDecisions(this.decisions.clear("session-reset"));
     this.generation++;
     for (const job of this.jobs.values()) job.controller.abort();
     for (const controller of this.controllers.values()) controller.abort();
@@ -90,6 +112,7 @@ export class BackgroundWorkers {
         job.controller.abort(); // Stop siblings if a chain/parallel job throws.
         job.result = {isError: true, content: [{type: "text", text: String(error)}]};
       }
+      this.settleDecisions(this.decisions.settleJob(id, "job-ended"));
       if (job.generation !== this.generation) return;
       const output = (job.result.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n");
       try {
@@ -128,7 +151,7 @@ export class BackgroundWorkers {
     if (r) { r.events.push("Steering acknowledged: " + message.slice(0, 150)); r.events = r.events.slice(-40); r.activity = "Steering queued: " + message.replace(/\s+/g, " ").slice(0, 150); this.monitor.store.changed(); }
   }
   steeringFor(workerId: string) { return this.steering.get(workerId) ?? []; }
-  detach(workerId: string) { this.clients.get(workerId)?.close(); this.clients.delete(workerId); this.controllers.delete(workerId); }
+  detach(workerId: string) { this.settleDecisions(this.decisions.settleWorker(workerId, "worker-exited")); this.clients.get(workerId)?.close(); this.clients.delete(workerId); this.controllers.delete(workerId); }
   private worker(target: string): string | undefined {
     if (this.clients.has(target)) return target;
     const number = target.replace(/^#/, "");
@@ -171,10 +194,56 @@ export class BackgroundWorkers {
   }
   cancel(target: string) {
     const job = this.jobs.get(target);
-    if (job) { if (job.state !== "running") throw new Error("Job has already finished"); job.controller.abort(); return "Stopping job " + target; }
+    if (job) { if (job.state !== "running") throw new Error("Job has already finished"); this.settleDecisions(this.decisions.settleJob(target, "cancelled")); job.controller.abort(); return "Stopping job " + target; }
     const id = this.worker(target), controller = id ? this.controllers.get(id) : undefined;
     if (!controller) throw new Error("No active worker matches " + target);
+    this.settleDecisions(this.decisions.settleWorker(id!, "cancelled"));
     controller.abort(); return "Stopping worker " + id;
+  }
+  // Parent side of request_decision: announce a validated request, hold its exact dialog, relay the answer.
+  announceDecision(jobId: string, workerId: string, candidate: string, message: string) {
+    const result = this.decisions.announce({jobId, workerId, candidate, raw: decisionPayload(message)});
+    if (result.ok) this.notifyDecision({...result.record, state: "open"}, true);
+    else this.notifyDecision({state: "rejected", requestId: result.requestId, jobId, workerId, candidate, reason: result.error}, true);
+  }
+  holdDecisionDialog(jobId: string, workerId: string, event: {method: string; title?: unknown; id?: unknown}): boolean {
+    return !!this.decisions.holdDialog({jobId, workerId, method: event.method, title: event.title, dialogId: event.id});
+  }
+  // Records answered/declined only after the stream write is confirmed. Failure or a racing settlement stays terminal and unanswered.
+  async answerDecision(requestId: string, action: DecisionAction): Promise<string> {
+    const result = action.kind === "answer"
+      ? this.decisions.answer(requestId, {answer: action.answer, basis: action.basis, reference: action.reference})
+      : this.decisions.decline(requestId, action.reason);
+    if (!result.ok) throw new Error(result.error);
+    const {record} = result;
+    try {
+      const client = this.clients.get(record.workerId);
+      if (!client) throw new Error("worker is no longer attached");
+      await client.respond(record.dialogId!, {value: result.value});
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!this.decisions.settleDelivery(record, "delivery-failed: " + message)) throw this.settledError(record);
+      this.notifyDecision({...record, state: "settled"}, false);
+      throw new Error("Decision " + requestId + " was not delivered (" + message + "); it is settled as failed and not recorded as answered.");
+    }
+    if (!this.decisions.settleDelivery(record, action.kind === "answer" ? "answered" : "declined")) throw this.settledError(record);
+    const job = this.jobs.get(record.jobId);
+    return "Decision " + requestId + " recorded (" + (action.kind === "answer" ? "answered, basis " + action.basis : "declined") + "). Worker " + record.workerId + " stream write confirmed; the worker's receipt is not confirmed. " + (job?.paused ? "Job " + job.id + " stays paused; resume separately." : "Job continues.");
+  }
+  private settledError(record: DecisionRecord) {
+    return new Error("Decision " + record.requestId + " was settled (" + record.reason + ") before its delivery completed; it is not recorded as answered.");
+  }
+  private settleDecisions(settlements: DecisionSettlement[]) {
+    for (const settled of settlements) {
+      // Settlement is already terminal; a failed cleanup write must not leave an unhandled rejection.
+      if (settled.dialogId) this.clients.get(settled.workerId)?.respond(settled.dialogId, settled.value === undefined ? {cancelled: true as const} : {value: settled.value}).catch(() => {});
+      this.notifyDecision({...settled.record, state: "settled"}, false);
+    }
+  }
+  private notifyDecision(notice: DecisionNotice, triggerTurn: boolean) {
+    try {
+      void Promise.resolve(this.pi.sendMessage({customType: "subagent-decision", content: formatDecisionNotice(notice), display: true, details: notice}, {triggerTurn, deliverAs: "followUp"})).catch(() => {});
+    } catch { /* Session can close while its decision notice is delivered. */ }
   }
   list() {
     return [...this.jobs.values()].map(j => ({jobId: j.id, state: j.state, paused: !!j.paused, workers: j.workerIds.map(id => {

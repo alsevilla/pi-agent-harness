@@ -8,4 +8,6 @@ Result details contain `answers`, `response`, `cancelled` and, when cancelled, `
 
 Main profile must remove/disable the old npm registration before enabling this extension; tool names must not collide. Headless workers should hand human decisions to main. No actual dialogs are opened by tests.
 
+Subagent worker decisions (`request_decision`) are not shown through this tool; main answers them with the `subagent_control` decisions/answer/decline actions. Main may use `ask_user` first to ask the human, then answer with `basis` `user_answer`. Freeform and no-options questions are supported here unchanged.
+
 Run `node --test extensions/ask-user/tests/core.test.ts` on a Node runtime with native TypeScript support. Tests cover choice/freeform, explicit multi-select, comments, invalid/blank input, no UI, batch partial answers, whole-request timeout, abort, concurrency and recovery. Model adherence and terminal-specific rendering remain runtime limitations.

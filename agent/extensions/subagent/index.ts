@@ -32,6 +32,7 @@ import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
 import { getFallbackSequence, nextFallbackModel } from "./model-routing.ts";
 import { configureCodeIntegrations, CODE_NAVIGATION_GUIDANCE, graphReferenceGuidance } from "./code-integrations.ts";
 import { cargoEnvDefaults } from "./build-env.ts";
+import { DECISION_RECORD_PREFIX, DECISION_RELAY_ENV, DECISION_TOOL, DecisionRelay } from "./decision-relay-state.ts";
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
@@ -217,7 +218,7 @@ async function runSingleAgent(
 	if (inheritsDispatchConfig && dispatchDefaults.thinkingLevel) {
 		args.push("--thinking", dispatchDefaults.thinkingLevel);
 	}
-	codeIntegrationsEnabled = configureCodeIntegrations(args, agent);
+	codeIntegrationsEnabled = configureCodeIntegrations(args, agent, dispatchDefaults.jobId ? [DECISION_TOOL] : []);
 
     } catch (error) {
         if (worker) dispatchDefaults.monitor?.store.finish(worker.id, "failed", String(error));
@@ -266,6 +267,7 @@ async function runSingleAgent(
             controlPath = path.join(controlDir, "control.json");
             fs.writeFileSync(controlPath, "0");
             args.push("--extension", path.join(getAgentDir(), "extensions", "subagent", "pause-gate.ts"));
+            args.push("--extension", path.join(getAgentDir(), "extensions", "subagent", "decision-relay.ts"));
         }
         if (!dispatchDefaults.jobId) args.push(`Task: ${task}`);
 		let wasAborted = false;
@@ -275,7 +277,7 @@ async function runSingleAgent(
 			const invocation = getPiInvocation(args);
 			const proc = spawn(invocation.command, invocation.args, {
 				cwd: cwd ?? defaultCwd,
-                env: {...process.env, ...cargoEnvDefaults(cwd ?? defaultCwd), PI_SUBAGENT_CONTROL_FILE: controlPath ?? ""},
+                env: {...process.env, ...cargoEnvDefaults(cwd ?? defaultCwd), PI_SUBAGENT_CONTROL_FILE: controlPath ?? "", [DECISION_RELAY_ENV]: dispatchDefaults.jobId ? "1" : ""},
 				shell: false,
 				stdio: [dispatchDefaults.jobId ? "pipe" : "ignore", "pipe", "pipe"],
 			});
@@ -303,7 +305,11 @@ async function runSingleAgent(
 				}
 
 				client?.event(event);
-                if (client && event.type === "extension_ui_request" && ["select", "confirm", "input", "editor"].includes(event.method)) {
+                const relayed = Boolean(client && worker && dispatchDefaults.jobId && event.type === "extension_ui_request");
+                if (relayed && event.method === "notify" && typeof event.message === "string" && event.message.startsWith(DECISION_RECORD_PREFIX)) dispatchDefaults.runtime?.announceDecision(dispatchDefaults.jobId!, worker!.id, cwd ?? defaultCwd, event.message);
+                // Only the exact dialog of an announced request is held; every other dialog keeps the auto-cancel below.
+                const held = relayed && dispatchDefaults.runtime?.holdDecisionDialog(dispatchDefaults.jobId!, worker!.id, event);
+                if (client && !held && event.type === "extension_ui_request" && ["select", "confirm", "input", "editor"].includes(event.method)) {
                     // Detached workers cannot leave an unanswered dialog hanging.
                     proc.stdin?.write(JSON.stringify({type: "extension_ui_response", id: event.id, cancelled: true}) + "\n");
                     currentResult.stderr += `Worker dialog canceled: ${event.method} ${event.title ?? ""}\n`;
@@ -467,7 +473,8 @@ const SubagentParams = Type.Object({
 
 export default function (pi: ExtensionAPI) {
 	const monitor = new WorkerMonitor(pi);
-    const runtime = new BackgroundWorkers(pi, monitor);
+    const decisions = new DecisionRelay();
+    const runtime = new BackgroundWorkers(pi, monitor, decisions);
     const subagentTool = {
 		name: "subagent",
 		label: "Subagent",
@@ -764,12 +771,14 @@ export default function (pi: ExtensionAPI) {
     pi.registerTool(subagentTool);
     pi.registerTool({
         name: "subagent_control", label: "Subagent control",
-        description: "Manage existing background jobs. list returns job/worker IDs and current activity. steer sends a new instruction to an active worker at its next tool boundary; use its unique worker ID when a job has multiple workers. pause enforces a hold after the current tool/model call; resume continues the same worker. Pause a job to hold all active workers and later chain steps. A steering message alone is model advice, not an enforced stop. cancel stops a worker or job. result retrieves a finished job. Completions arrive automatically, so do not busy-poll. Never restart or duplicate a running worker just to steer it.",
-        parameters: Type.Object({action: StringEnum(["list", "steer", "pause", "resume", "cancel", "result"] as const), target: Type.Optional(Type.String({description: "Job ID bg-N, full worker ID, or #N"})), message: Type.Optional(Type.String())}),
+        description: "Manage existing background jobs. list returns job/worker IDs and current activity. steer sends a new instruction to an active worker at its next tool boundary; use its unique worker ID when a job has multiple workers. pause enforces a hold after the current tool/model call; resume continues the same worker. Pause a job to hold all active workers and later chain steps. A steering message alone is model advice, not an enforced stop. cancel stops a worker or job. result retrieves a finished job. Completions arrive automatically, so do not busy-poll. Never restart or duplicate a running worker just to steer it. decisions lists worker decision requests; answer or decline a requestId only with its traceable basis or reason. Answers never resume a paused job; steer never answers a decision.",
+        parameters: Type.Object({action: StringEnum(["list", "steer", "pause", "resume", "cancel", "result", "decisions", "answer", "decline"] as const), target: Type.Optional(Type.String({description: "Job ID bg-N, full worker ID, #N, or decision requestId dec-…"})), message: Type.Optional(Type.String()), answer: Type.Optional(Type.String({description: "Freeform answer text (action answer)"})), basis: Type.Optional(StringEnum(["user_answer", "existing_authorization"] as const)), reference: Type.Optional(Type.String({description: "Traceable source of the answer or authorization"})), reason: Type.Optional(Type.String({description: "Why the request is declined (action decline)"}))}),
         async execute(_id, params) {
             try {
                 if (params.action === "list") return {content: [{type: "text", text: JSON.stringify(runtime.list())}]};
+                if (params.action === "decisions") return {content: [{type: "text", text: JSON.stringify(decisions.list())}]};
                 if (!params.target) throw new Error("target is required");
+                if (params.action === "answer" || params.action === "decline") return {content: [{type: "text", text: await runtime.answerDecision(params.target, params.action === "answer" ? {kind: "answer", answer: params.answer, basis: params.basis, reference: params.reference} : {kind: "decline", reason: params.reason})}]};
                 if (params.action === "result") return runtime.result(params.target);
                 if (params.action === "steer" && !params.message?.trim()) throw new Error("A nonempty steering message is required");
                 const text = params.action === "steer" ? await runtime.steer(params.target, params.message!) : params.action === "pause" || params.action === "resume" ? runtime.pause(params.target, params.action === "pause") : runtime.cancel(params.target);
