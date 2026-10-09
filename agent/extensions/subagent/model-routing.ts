@@ -1,3 +1,5 @@
+import { classifyProviderError } from "./provider-cooldown.ts";
+
 // Model IDs are catalog identifiers: trimmed, otherwise passed through verbatim (no aliasing).
 export function parseFallbackModels(value: string | undefined): string[] {
 	return [...new Set((value ?? "").split("||").map((model) => model.trim()).filter(Boolean))];
@@ -26,11 +28,13 @@ export function isProviderAvailabilityFailure(result: {
 	toolActivity?: boolean;
 }): boolean {
 	if (result.stopReason === "aborted" || result.toolActivity || (result.exitCode === 0 && result.stopReason !== "error")) return false;
+	// Only a real error stop can be a provider availability failure: length, toolUse, pending and deferred never replay.
+	if (result.stopReason !== undefined && result.stopReason !== "error") return false;
 
-	const error = `${result.errorMessage ?? ""}\n${result.stderr ?? ""}\n${result.output ?? ""}`;
-	return /\b(?:401|403|404|408|429|500|502|503|504)\b|unauthori[sz]ed|forbidden|authentication failed|rate[\s_-]?limit|too many requests|quota exceeded|usage limit (?:has been )?reached|model.{0,40}(?:unavailable|not available|not found|unknown|not supported|does not exist)|(?:provider|service).{0,40}(?:unavailable|overloaded)|temporarily unavailable|overloaded/i.test(
-		error,
-	);
+	// Only the real error message counts; output/stderr prose never triggers replay. Auth and model errors are not replayed.
+	if (/^provider cooldown\b/i.test(result.errorMessage ?? "")) return false; // the guard's own refusals are never provider health; the parent store decides replay
+	const kind = classifyProviderError(result.errorMessage).kind;
+	return kind === "quota" || kind === "rate" || kind === "transient";
 }
 
 export function shouldRetryWithFallback(

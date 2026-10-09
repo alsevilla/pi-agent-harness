@@ -38,8 +38,9 @@ orchestrator the implementation worker.
 
 Once READY FOR EXECUTION is established:
 
-- backend source mutation routes to `rust-worker`;
+- backend source mutation routes to `backend-worker`;
 - frontend source mutation routes to `frontend-worker`;
+- general (tooling, CLI, extension, script, docs, config) mutation routes to `general-worker`;
 - cross-stack work uses explicit non-overlapping ownership;
 - specialist analysis runs first when a material unresolved domain decision
   requires it.

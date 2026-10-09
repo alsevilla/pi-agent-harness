@@ -18,7 +18,7 @@ Read the assigned `sqlite-sqlx-engineering` module index once, then only relevan
 
 You are **read-only in this role**.
 
-When unresolved material persistence semantics are part of the task, analyze them before implementation when the worker would otherwise need to invent the policy. `rust-worker` normally owns backend source
+When unresolved material persistence semantics are part of the task, analyze them before implementation when the worker would otherwise need to invent the policy. `backend-worker` normally owns backend source
 mutation.
 
 Read:

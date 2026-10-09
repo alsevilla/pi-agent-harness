@@ -524,8 +524,14 @@ for logs, metrics, health checks, diagnostics, and alerts.
 `security-specialist`
 for secrets, permissions, service accounts, and privilege boundaries.
 
-`rust-worker`
-for implementation.
+`backend-worker`
+for backend service implementation.
+
+`general-worker`
+for tooling, scripts and config implementation.
+
+`frontend-worker`
+for frontend UI implementation.
 
 `reviewer`
 for high-risk production changes.

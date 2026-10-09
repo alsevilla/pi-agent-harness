@@ -54,7 +54,7 @@ A worker refusing an oversized assignment is a routing/packet problem, not a
 handoff authorizing main-session implementation, diagnosis, or independent VERIFY.
 Split it by one behavior or failing target, with one bounded acceptance check;
 do not relaunch the unchanged oversized packet. Test implementation belongs to
-the appropriate rust-worker/frontend-worker. Selected independent suite/baseline
+the appropriate backend-worker, frontend-worker or general-worker. Selected independent suite/baseline
 verification belongs to test-engineer, identified by exact candidate and contract.
 Main-session spot checks remain allowed, but do not substitute for these roles.
 

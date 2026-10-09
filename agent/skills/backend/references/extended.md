@@ -31,7 +31,7 @@ This is the **mandatory backend-domain front door** under the engineering
 harness. It is not a second lifecycle.
 
 When backend concerns are material, invoke `Skill(backend)` before selecting a
-backend capability or routing `rust-worker` / backend specialists. Do not jump
+backend capability or routing `backend-worker` / backend specialists. Do not jump
 directly from the main session to `rust-axum-engineering`,
 `sqlite-sqlx-engineering`, `load-resilience-testing`, or a backend specialist.
 
@@ -46,9 +46,9 @@ non-trivial backend implementation itself.
 - unresolved concurrency semantics -> dispatch `concurrency-specialist`;
 - unresolved API/security/architecture/ops/observability/performance policy ->
   dispatch the justified specialist;
-- authorized implementation-only backend work -> dispatch `rust-worker`.
+- authorized implementation-only backend work -> dispatch `backend-worker`.
 
-After specialist handoff acceptance, route implementation to `rust-worker`.
+After specialist handoff acceptance, route implementation to `backend-worker`.
 If a required agent cannot launch, return BLOCKED for that role instead of
 substituting orchestrator reasoning or edits.
 
@@ -68,7 +68,7 @@ Verify, Review, Integrate, Ship, and Learn.
 
 ## Role Routing
 
-The main implementation writer for Rust backend source is `rust-worker`.
+The main implementation writer for backend source (any language) is `backend-worker`.
 
 Read-only/domain specialists may participate when justified:
 
@@ -88,8 +88,8 @@ Do not create a second writer merely because several concerns are present.
 
 | Skill | Primary use | Primary owner | Use when | Location |
 |---|---|---|---|---|
-| `rust-axum-engineering` | Rust + Axum + Tokio + Tower implementation | `rust-worker` | Handlers, services, errors, typed state/extractors, middleware, async tasks, cancellation, shutdown, bounded concurrency, backend tests | `~/.pi/agent/skills/backend/rust-axum-engineering/index.md` |
-| `sqlite-sqlx-engineering` | SQLite + SQLx persistence engineering | `sqlite-specialist` for analysis, `rust-worker` for authorized implementation | Schema, migrations, SQLx pool/options, transactions, WAL, busy handling, constraints, indexes, query plans, idempotency, burst writes | `~/.pi/agent/skills/backend/sqlite-sqlx-engineering/index.md` |
+| `rust-axum-engineering` | Rust + Axum + Tokio + Tower implementation | `backend-worker` | Handlers, services, errors, typed state/extractors, middleware, async tasks, cancellation, shutdown, bounded concurrency, backend tests | `~/.pi/agent/skills/backend/rust-axum-engineering/index.md` |
+| `sqlite-sqlx-engineering` | SQLite + SQLx persistence engineering | `sqlite-specialist` for analysis, `backend-worker` for authorized implementation | Schema, migrations, SQLx pool/options, transactions, WAL, busy handling, constraints, indexes, query plans, idempotency, burst writes | `~/.pi/agent/skills/backend/sqlite-sqlx-engineering/index.md` |
 | `load-resilience-testing` | Burst/load/resilience evidence | `test-engineer` / `performance-specialist` with domain specialists as needed | Arrival-rate workloads, overload/backpressure, DB contention, dependency failure, shutdown-under-load, restart/recovery, soak when justified | `~/.pi/agent/skills/backend/load-resilience-testing/index.md` |
 
 ## Routing Priority
@@ -111,7 +111,7 @@ Use:
 
 `sqlite-sqlx-engineering`
 
-`sqlite-specialist` owns analysis and invariants. `rust-worker` remains the
+`sqlite-specialist` owns analysis and invariants. `backend-worker` remains the
 normal source-code writer.
 
 ### API contract changes
@@ -193,7 +193,7 @@ behavior.
 3. Select the narrowest relevant registered backend capability.
 4. Invoke it with `Skill(<capability>)`, unless the assigned leaf agent already receives it through `skills:` preload.
 5. Route a read-only specialist first only when unresolved material domain policy or correctness risk justifies it.
-6. Keep `rust-worker` as the normal backend source writer.
+6. Keep `backend-worker` as the normal backend source writer.
 7. Use additional backend capabilities only for genuinely distinct concerns.
 8. Return control to the governing engineering lifecycle for independent Verify/Review and later phases.
 
@@ -226,7 +226,7 @@ read-only specialist:
 - observability contract -> `observability-specialist`
 - evidence-driven performance strategy -> `performance-specialist`
 
-Then return the accepted handoff to `rust-worker` for implementation.
+Then return the accepted handoff to `backend-worker` for implementation.
 
 Do not invoke a specialist for routine code when the relevant contract is
 already settled.

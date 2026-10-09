@@ -21,6 +21,7 @@ models.json
 gsd-install-state.json
 gsd-migration-journal/
 missions/
+agent/state/
 
 # ---- Backups ----
 *.bak*
@@ -53,3 +54,9 @@ agent/extensions/engineering-environment/config.json
 # Machine-local helper executables
 /agent/bin/
 agent/extensions/refresh/config.json
+
+# Knowledge library: private and local notes stay unversioned and unindexed
+docs/knowledge/private/
+docs/knowledge/local/
+# Provider cooldown shared store (machine-local run state; never commit)
+agent/run-state/

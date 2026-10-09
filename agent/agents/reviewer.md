@@ -1,8 +1,8 @@
 ---
 name: reviewer
 description: REQUIRED named role for REVIEW. Independently review an identified candidate and its evidence in the reviewer agent. Challenge correctness, safety, scope, authority and regressions; return a review disposition without modifying the candidate.
-model: openai-codex/gpt-6.1-sol
-fallbackModel: github-copilot/gpt-6-sol
+model: anthropic/claude-sonnet-5-5
+fallbackModel: openai-codex/gpt-6.1-sol || github-copilot/claude-sonnet-5
 thinking: medium
 tools: read, grep, find, ls, bash, powershell
 ---

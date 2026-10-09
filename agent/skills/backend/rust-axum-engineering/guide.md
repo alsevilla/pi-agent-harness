@@ -6,7 +6,7 @@ writer. It is not a new worker, architect, or lifecycle owner.
 ## Authority
 
 Normally:
-- `rust-worker` owns source mutation;
+- `backend-worker` owns source mutation;
 - `concurrency-specialist` analyzes difficult concurrency risk;
 - `api-specialist` owns contract reasoning;
 - `reviewer` and `test-engineer` remain independent.

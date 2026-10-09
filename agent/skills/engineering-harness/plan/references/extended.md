@@ -997,8 +997,9 @@ Assign one primary implementation owner per implementation task.
 
 Typical owners:
 
-- `rust-worker`
+- `backend-worker`
 - `frontend-worker`
+- `general-worker`
 
 Specialists normally advise rather than implement.
 

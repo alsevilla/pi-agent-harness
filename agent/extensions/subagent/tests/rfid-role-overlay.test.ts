@@ -24,18 +24,18 @@ function frontmatter(name: string) {
   return { text, name: field("name"), tools: field("tools") ?? "", model: field("model"), fallbackModel: field("fallbackModel"), thinking: field("thinking") };
 }
 
-test("RFID overlay registers 22 unique roles without statusline-setup", () => {
-  assert.equal(roles.length, 22);
-  assert.equal(new Set(roles.map((r: { name: string }) => r.name)).size, 22);
+test("RFID overlay registers 23 unique roles without statusline-setup", () => {
+  assert.equal(roles.length, 23);
+  assert.equal(new Set(roles.map((r: { name: string }) => r.name)).size, 23);
   assert.ok(!roles.some((r: { name: string }) => r.name === "statusline-setup"));
   assert.ok(!fs.existsSync(new URL("../../../agents/statusline-setup.md", import.meta.url)), "statusline-setup definition removed");
-  assert.equal(fs.readdirSync(new URL("../../../agents/", import.meta.url)).filter((f) => f.endsWith(".md")).length, 22);
+  assert.equal(fs.readdirSync(new URL("../../../agents/", import.meta.url)).filter((f) => f.endsWith(".md")).length, 23);
   for (const name of newRoles) assert.ok(roles.some((r: { name: string }) => r.name === name), name);
 });
 
 test("all five new roles receive standard code navigation integrations", () => {
   for (const name of newRoles) assert.ok(integrations.roles.includes(name), name);
-  assert.equal(integrations.roles.length, 22);
+  assert.equal(integrations.roles.length, 23);
   assert.deepEqual([...integrations.roles].sort(), roles.map((r: { name: string }) => r.name).sort());
 });
 
@@ -81,11 +81,29 @@ test("release engineer has precise edit but not bulk write", () => {
 });
 
 test("registry mirrors precise edit restriction for implementation workers", () => {
-  for (const name of ["rust-worker", "frontend-worker"]) {
+  for (const name of ["backend-worker", "frontend-worker", "general-worker"]) {
     const role = roles.find((r: { name: string }) => r.name === name);
     assert.ok(role, name);
     assert.match(role.tools, /(^|,\s*)edit(\s*,|$)/);
     assert.ok(!/(^|,\s*)write(\s*,|$)/.test(role.tools));
+  }
+});
+
+test("implementation workers are backend, frontend and general with the inherited rust defaults", () => {
+  assert.equal(roles.find((r: { name: string }) => r.name === "rust-worker"), undefined, "rust-worker retired from registry");
+  assert.equal(fs.existsSync(new URL("../../../agents/rust-worker.md", import.meta.url)), false, "rust-worker definition retired");
+  const defaults = { provider: "anthropic", model: "claude-haiku-5-5", fallbackModel: "openai-codex/gpt-6-luna || github-copilot/gpt-6-luna", thinking: "low", tools: "read, grep, find, ls, bash, powershell, edit" };
+  for (const name of ["backend-worker", "frontend-worker", "general-worker"]) {
+    const role = roles.find((r: { name: string }) => r.name === name);
+    assert.ok(role, name);
+    assert.deepEqual({ provider: role.provider, model: role.model, fallbackModel: role.fallbackModel, thinking: role.thinking, tools: role.tools }, defaults, name);
+  }
+});
+
+test("every role description is a YAML plain scalar (no ': ' that parses as a nested mapping)", () => {
+  for (const role of roles) {
+    const description = frontmatter(role.name).text.match(/^description:(.*)$/m)?.[1] ?? "";
+    assert.ok(!/:\s/.test(description), `${role.name}: description contains ': ' and fails YAML frontmatter parsing`);
   }
 });
 

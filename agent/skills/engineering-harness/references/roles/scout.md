@@ -458,8 +458,8 @@ Look for:
 - load/resilience tooling such as k6/oha/benchmarks/fault-injection fixtures;
 - existing capacity/SLO/load-test documentation.
 
-If Rust/Axum implementation is material, recommend `rust-worker` +
-`rust-axum-engineering`.
+If backend server implementation is material, recommend `backend-worker`;
+add `rust-axum-engineering` only for a Rust/Axum stack.
 
 If SQLite/SQLx semantics are material, recommend `sqlite-specialist` +
 `sqlite-sqlx-engineering`.

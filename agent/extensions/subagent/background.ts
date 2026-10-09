@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import type { ChildProcess } from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { WorkerMonitor } from "./monitor.ts";
+import { boundBackgroundCompletion, expandRetainedResult } from "./compact-handoff.ts";
 import { DecisionRelay, decisionPayload, formatDecisionNotice, type DecisionAction, type DecisionNotice, type DecisionRecord, type DecisionSettlement } from "./decision-relay-state.ts";
 
 export class RpcWorker {
@@ -9,7 +10,10 @@ export class RpcWorker {
   private pending = new Map<string, {resolve: (value: any) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>}>();
   closed = false;
   private writes = new Set<(error: Error) => void>(); // decision responses whose stream write has not been confirmed
-  constructor(readonly proc: ChildProcess, readonly controlPath?: string) { proc.stdin?.on("error", error => this.close(error.message)); }
+  readonly proc: ChildProcess;
+  readonly controlPath?: string;
+  // Explicit fields, not parameter properties: Node's strip-only TypeScript mode (no transform) must load this file.
+  constructor(proc: ChildProcess, controlPath?: string) { this.proc = proc; this.controlPath = controlPath; proc.stdin?.on("error", error => this.close(error.message)); }
   send(type: string, message?: string): Promise<any> {
     if (this.closed || !this.proc.stdin?.writable) return Promise.reject(new Error("Worker has finished or disconnected"));
     const id = `control-${++this.sequence}`;
@@ -59,18 +63,24 @@ export class RpcWorker {
 
 interface Job {
   id: string; generation: number; state: "running" | "completed" | "failed" | "aborted";
-  controller: AbortController; workerIds: string[]; result?: any; pendingSteers: string[]; paused?: boolean;
+  controller: AbortController; workerIds: string[]; nodes: Map<string, string>; result?: any; pendingSteers: string[]; paused?: boolean; waiting?: string;
 }
 export class BackgroundWorkers {
   jobs = new Map<string, Job>();
   clients = new Map<string, RpcWorker>();
   private controllers = new Map<string, AbortController>();
   private steering = new Map<string, string[]>();
+  private waitingKeys = new Map<string, Set<string>>(); // per-DAG-node queued claims; the job shows waiting while any remains
   private generation = 0;
   private sequence = 0;
   private slots = 0;
   private queue: {signal?: AbortSignal; resolve: (release: () => void) => void; reject: (error: Error) => void; abort: () => void}[] = [];
-  constructor(private pi: ExtensionAPI, readonly monitor: WorkerMonitor, private decisions = new DecisionRelay()) {
+  private pi: ExtensionAPI;
+  readonly monitor: WorkerMonitor;
+  private decisions: DecisionRelay;
+  // Explicit fields, not parameter properties (strip-only Node must load this file).
+  constructor(pi: ExtensionAPI, monitor: WorkerMonitor, decisions = new DecisionRelay()) {
+    this.pi = pi; this.monitor = monitor; this.decisions = decisions;
     pi.on("session_start", () => this.reset());
     pi.on("session_shutdown", () => this.reset());
   }
@@ -79,11 +89,11 @@ export class BackgroundWorkers {
     this.generation++;
     for (const job of this.jobs.values()) job.controller.abort();
     for (const controller of this.controllers.values()) controller.abort();
-    this.jobs.clear(); this.clients.clear(); this.controllers.clear(); this.steering.clear();
+    this.jobs.clear(); this.clients.clear(); this.controllers.clear(); this.steering.clear(); this.waitingKeys.clear();
   }
-  async acquire(signal?: AbortSignal): Promise<() => void> {
+  async acquire(limit: number, signal?: AbortSignal): Promise<() => void> {
     if (signal?.aborted) throw new Error("Subagent was aborted");
-    if (this.slots < 4) { this.slots++; return this.releaseOnce(); }
+    if (this.slots < limit) { this.slots++; return this.releaseOnce(); }
     return new Promise((resolve, reject) => {
       const item = {signal, resolve, reject, abort: () => { this.queue = this.queue.filter(x => x !== item); reject(new Error("Subagent was aborted")); }};
       this.queue.push(item); signal?.addEventListener("abort", item.abort, {once: true});
@@ -101,7 +111,7 @@ export class BackgroundWorkers {
   start(run: (signal: AbortSignal, jobId: string) => Promise<any>) {
     if ([...this.jobs.values()].filter(j => j.state === "running").length >= 16) throw new Error("16 background jobs are already active; finish or stop a job first");
     const id = `bg-${++this.sequence}`;
-    const job: Job = {id, generation: this.generation, state: "running", controller: new AbortController(), workerIds: [], pendingSteers: []};
+    const job: Job = {id, generation: this.generation, state: "running", controller: new AbortController(), workerIds: [], nodes: new Map(), pendingSteers: []};
     this.jobs.set(id, job);
     void (async () => {
       try {
@@ -116,7 +126,7 @@ export class BackgroundWorkers {
       if (job.generation !== this.generation) return;
       const output = (job.result.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n");
       try {
-        await this.pi.sendMessage({customType: "subagent-completion", content: `Subagent job ${id} ${job.state}. Workers: ${job.workerIds.join(", ") || "none"}.\n${output.slice(0, 50000)}${output.length > 50000 ? "\n[Remaining output available via subagent_control result.]" : ""}`, display: false, details: {jobId: id, state: job.state}}, {triggerTurn: true, deliverAs: "followUp"});
+        await this.pi.sendMessage({customType: "subagent-completion", content: boundBackgroundCompletion(`Subagent job ${id} ${job.state}. Workers: ${job.workerIds.join(", ") || "none"}.\n${output}`, id), display: false, details: {jobId: id, state: job.state}}, {triggerTurn: true, deliverAs: "followUp"});
       } catch { /* Session can close while its completion is being delivered. */ }
       const finished = [...this.jobs.values()].filter(j => j.state !== "running");
       for (const old of finished.slice(0, Math.max(0, finished.length - 64))) {
@@ -131,7 +141,14 @@ export class BackgroundWorkers {
     const held = [...this.monitor.store.records.values()].find(r => !r.endedAt && (r.state === "paused" || r.state === "pausing") && roles.includes(r.name));
     if (held) throw new Error("Worker " + held.id + " (" + held.name + ") is paused. Resume or cancel it before launching another worker with that role.");
   }
-  note(jobId: string, workerId: string) { this.jobs.get(jobId)?.workerIds.push(workerId); }
+  setWaiting(jobId: string, waiting?: string, key = "") {
+    const job = this.jobs.get(jobId); if (!job) return;
+    const keys = this.waitingKeys.get(jobId) ?? new Set<string>();
+    if (waiting) keys.add(key); else keys.delete(key);
+    if (keys.size) this.waitingKeys.set(jobId, keys); else this.waitingKeys.delete(jobId);
+    job.waiting = keys.size ? (waiting ?? job.waiting) : undefined;
+  }
+  note(jobId: string, workerId: string, node?: string) { const job = this.jobs.get(jobId); if (!job) return; job.workerIds.push(workerId); if (node !== undefined) job.nodes.set(workerId, node); }
   attach(jobId: string, workerId: string, client: RpcWorker, controller: AbortController) {
     this.clients.set(workerId, client); this.controllers.set(workerId, controller);
     const job = this.jobs.get(jobId);
@@ -246,13 +263,15 @@ export class BackgroundWorkers {
     } catch { /* Session can close while its decision notice is delivered. */ }
   }
   list() {
-    return [...this.jobs.values()].map(j => ({jobId: j.id, state: j.state, paused: !!j.paused, workers: j.workerIds.map(id => {
+    return [...this.jobs.values()].map(j => ({jobId: j.id, state: j.state, paused: !!j.paused, waiting: j.waiting, workers: j.workerIds.map(id => {
       const r = this.monitor.store.records.get(id);
-      return {id, name: r?.name, model: r?.reportedModel ?? r?.model, state: r?.state ?? "history expired", activity: r?.activity};
+      return {id, node: j.nodes.get(id), name: r?.name, model: r?.reportedModel ?? r?.model, state: r?.state ?? "history expired", activity: r?.activity};
     })}));
   }
   result(target: string) {
     const job = this.jobs.get(target); if (!job) throw new Error("Unknown job " + target);
-    return job.result ?? {content: [{type: "text", text: `Job ${target} is still running. Continue other work; completion will arrive automatically.`}]};
+    if (!job.result) return {content: [{type: "text", text: `Job ${target} is still running. Continue other work; completion will arrive automatically.`}]};
+    const full = expandRetainedResult(job.result); // explicit recovery is lossless and never bounded
+    return full === null ? job.result : {...job.result, content: [{type: "text", text: full}]};
   }
 }

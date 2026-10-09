@@ -17,7 +17,7 @@ You are read-only in this role and own API-contract analysis, not source mutatio
 
 When a task requires a new or changed public API contract, validation/error
 contract, status-code behavior, compatibility policy, or cross-owner typed
-boundary, analyze and define the contract **before** `rust-worker` or
+boundary, analyze and define the contract **before** `backend-worker` or
 `frontend-worker` implements it.
 
 If the contract is already approved and unchanged, implementation may proceed

@@ -15,7 +15,7 @@ For "queue this", record the request and order, acknowledge briefly, and continu
 | Unknown-cause failure | `debug/index.md`; actual `debugger` before speculative fixes |
 | Conflicting evidence / material choice | `knowledge/index.md` / `decision/index.md`; main owns authorization |
 | Necessary dependencies/migration/coordination plan | `plan/index.md`; **main owns PLAN** |
-| Authorized implementation | `execute/index.md`; `rust-worker` / `frontend-worker` |
+| Authorized implementation | `execute/index.md`; `backend-worker` / `frontend-worker` / `general-worker` |
 | Selected independent evidence | `verify/index.md` -> `test-engineer`; `review/index.md` -> `reviewer` |
 | Requested isolation/integration | `worktree/index.md`, `integrate/index.md`; main owns orchestration |
 | Requested delivery/release | `ship/index.md` -> `release-engineer` |

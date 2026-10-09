@@ -6,7 +6,7 @@
    be bypassed by calling the task localized or by generic "proceed" language.
 2. If a material decision or requirement is unresolved, stop affected writes and
    return the missing decision. Do not invent product/persistence/security semantics.
-3. Main session: launch rust-worker/frontend-worker for non-trivial implementation.
+3. Main session: launch backend-worker/frontend-worker/general-worker for non-trivial implementation.
    Only standalone T0 work outside assigned implementation/recovery may be edited
    directly. Compiler/reviewer fixes and failed edits within delegated work remain
    worker-owned, even when mechanical. Inspect failures, then steer the active worker

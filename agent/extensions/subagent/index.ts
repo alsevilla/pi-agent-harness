@@ -14,10 +14,13 @@
 
 import { BackgroundWorkers, RpcWorker } from "./background.ts";
 import { WorkerMonitor } from "./monitor.ts";
+import { acquireWorkspace, releaseWorkspace, WorkspaceAdmissionError, type WorkspaceAccess, type WorkspaceLease } from "./workspace-admission.ts";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import type { AgentToolResult, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
 import { StringEnum } from "@earendil-works/pi-ai";
@@ -31,12 +34,14 @@ import { Type } from "typebox";
 import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.ts";
 import { getFallbackSequence, nextFallbackModel } from "./model-routing.ts";
 import { configureCodeIntegrations, CODE_NAVIGATION_GUIDANCE, graphReferenceGuidance } from "./code-integrations.ts";
+import { COMPACT_HANDOFF_INSTRUCTIONS, extractFinalText, failureDiagnostics, incompleteLabel, isIncompleteStop, retainedEntryBlock, withTerminalDiagnostics } from "./compact-handoff.ts";
+import { appendParentReports, runDag, validateDag, type DagNodeSpec, type DagStatus } from "./dag.ts";
 import { cargoEnvDefaults } from "./build-env.ts";
 import { DECISION_RECORD_PREFIX, DECISION_RELAY_ENV, DECISION_TOOL, DecisionRelay } from "./decision-relay-state.ts";
+import { guardRefusalReplayable, providerLaunchState, registerProviderCooldown, runProviderCooldownCommand } from "./provider-cooldown-entry.ts";
 
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
-const PER_TASK_OUTPUT_CAP = 50 * 1024;
 
 interface UsageStats {
 	input: number;
@@ -50,6 +55,8 @@ interface UsageStats {
 
 interface SingleResult {
 	workerId?: string;
+	nodeId?: string; // DAG mode: node identity, stable even when agents repeat
+	dag?: { status: DagStatus; blockedBy?: string[]; started: boolean }; // DAG mode: node outcome
     toolActivity?: boolean;
 	agent: string;
 	agentSource: "user" | "project" | "unknown";
@@ -65,44 +72,27 @@ interface SingleResult {
 }
 
 interface SubagentDetails {
-	mode: "single" | "parallel" | "chain";
+	mode: "single" | "parallel" | "chain" | "dag";
 	agentScope: AgentScope;
 	projectAgentsDir: string | null;
 	results: SingleResult[];
 }
 
 function getFinalOutput(messages: Message[]): string {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const msg = messages[i];
-		if (msg.role === "assistant") {
-			for (const part of msg.content) {
-				if (part.type === "text") return part.text;
-			}
-		}
-	}
-	return "";
+	return extractFinalText(messages); // every text block of the last text-bearing assistant, not only the first
 }
 
 function isFailedResult(result: SingleResult): boolean {
-	return result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
+	return result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted" || isIncompleteStop(result);
 }
 
 function getResultOutput(result: SingleResult): string {
+	// INCOMPLETE keeps every text block of the final message plus its terminal diagnostics: the partial report is the evidence.
+	if (isIncompleteStop(result)) return withTerminalDiagnostics(extractFinalText(result.messages), result) || "(no output)";
 	if (isFailedResult(result)) {
-		return result.errorMessage || result.stderr || getFinalOutput(result.messages) || "(no output)";
+		return [...failureDiagnostics(result).map((d, i) => (i === 0 ? d.value : `${d.label}: ${d.value}`)), getFinalOutput(result.messages)].filter(Boolean).join("\n\n") || "(no output)";
 	}
 	return getFinalOutput(result.messages) || "(no output)";
-}
-
-function truncateParallelOutput(output: string): string {
-	const byteLength = Buffer.byteLength(output, "utf8");
-	if (byteLength <= PER_TASK_OUTPUT_CAP) return output;
-
-	let truncated = output.slice(0, PER_TASK_OUTPUT_CAP);
-	while (Buffer.byteLength(truncated, "utf8") > PER_TASK_OUTPUT_CAP) {
-		truncated = truncated.slice(0, -1);
-	}
-	return `${truncated}\n\n[Output truncated: ${byteLength - Buffer.byteLength(truncated, "utf8")} bytes omitted. Full output preserved in tool details.]`;
 }
 
 async function mapWithConcurrencyLimit<TIn, TOut>(
@@ -154,14 +144,19 @@ function getPiInvocation(args: string[]): { command: string; args: string[] } {
 type OnUpdateCallback = (partial: AgentToolResult<SubagentDetails>) => void;
 
 interface DispatchDefaults {
+	waitKey?: string; // DAG node ID: keys queued-claim accounting per job
     runtime?: BackgroundWorkers;
     jobId?: string;
+	onSpawn?: () => void; // called at the physical spawn attempt only; DAG reports started from it
 	monitor?: WorkerMonitor;
 	contextWindowFor?: (model: string) => number | undefined;
 	model?: string;
 	thinkingLevel?: ThinkingLevel;
 }
 
+const WORKSPACE_WAITING = "Waiting for workspace";
+
+// Admission boundary for every launch path (single, chain, parallel, background, future DAG): the claim is registered before any await and held across declared fallbacks.
 async function runSingleAgent(
 	defaultCwd: string,
 	dispatchDefaults: DispatchDefaults,
@@ -173,6 +168,52 @@ async function runSingleAgent(
 	signal: AbortSignal | undefined,
 	onUpdate: OnUpdateCallback | undefined,
 	makeDetails: (results: SingleResult[]) => SubagentDetails,
+	access: WorkspaceAccess = "write",
+): Promise<SingleResult> {
+	const agent = agents.find((a) => a.name === agentName);
+	if (!agent) return runAgentAttempt(defaultCwd, dispatchDefaults, agents, agentName, task, cwd, step, signal, onUpdate, makeDetails, undefined);
+	const { jobId, runtime } = dispatchDefaults;
+	// One claim key per workspace request: parallel entries without a node ID must not clear each other's waiting state.
+	const claim = dispatchDefaults.waitKey ?? randomUUID();
+	const setWaiting = (waiting?: string) => { if (jobId) runtime?.setWaiting(jobId, waiting, claim); };
+	const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 };
+	let lease: WorkspaceLease;
+	try {
+		lease = await acquireWorkspace(cwd ?? defaultCwd, {
+			access,
+			signal,
+			onQueued: () => {
+				setWaiting(WORKSPACE_WAITING);
+				if (!jobId) onUpdate?.({ content: [{ type: "text", text: WORKSPACE_WAITING }], details: makeDetails([{ agent: agentName, agentSource: agent.source, task, exitCode: -1, messages: [], stderr: "", usage, step }]) });
+			},
+		});
+	} catch (error) {
+		setWaiting(undefined);
+		if (signal?.aborted) throw new Error("Subagent was aborted");
+		if (error instanceof WorkspaceAdmissionError) return { agent: agentName, agentSource: agent.source, task, exitCode: 1, messages: [], stderr: error.message, usage, step, stopReason: "error", errorMessage: error.message };
+		throw error;
+	}
+	setWaiting(undefined);
+	try {
+		return await runAgentAttempt(defaultCwd, dispatchDefaults, agents, agentName, task, cwd, step, signal, onUpdate, makeDetails, lease);
+	} finally {
+		releaseWorkspace(lease);
+	}
+}
+
+// One launch attempt under an already-held workspace lease; fallback attempts reuse that lease.
+async function runAgentAttempt(
+	defaultCwd: string,
+	dispatchDefaults: DispatchDefaults,
+	agents: AgentConfig[],
+	agentName: string,
+	task: string,
+	cwd: string | undefined,
+	step: number | undefined,
+	signal: AbortSignal | undefined,
+	onUpdate: OnUpdateCallback | undefined,
+	makeDetails: (results: SingleResult[]) => SubagentDetails,
+	lease: WorkspaceLease | undefined,
 	attemptModel?: string,
 	fallbackModels?: string[],
 ): Promise<SingleResult> {
@@ -192,7 +233,7 @@ async function runSingleAgent(
 		};
 	}
 
-	const args: string[] = ["--mode", dispatchDefaults.jobId ? "rpc" : "json", ...(dispatchDefaults.jobId ? [] : ["-p"]), "--no-session", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--offline"];
+	const args: string[] = ["--mode", "rpc", "--no-session", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates", "--offline"];
 	const inheritsDispatchConfig = !agent.model;
 	const model = attemptModel ?? agent.model ?? dispatchDefaults.model;
 	const workerController = new AbortController();
@@ -202,10 +243,36 @@ async function runSingleAgent(
     if (parentSignal?.aborted) workerController.abort();
     if (dispatchDefaults.jobId) signal = workerController.signal;
     let release: (() => void) | undefined;
-    try { if (dispatchDefaults.jobId) { await dispatchDefaults.runtime?.waitRunnable(dispatchDefaults.jobId, signal); release = await dispatchDefaults.runtime?.acquire(signal); await dispatchDefaults.runtime?.waitRunnable(dispatchDefaults.jobId, signal); } }
+    try {
+        const { runtime, jobId } = dispatchDefaults;
+        if (runtime) {
+            // A job paused after its grant hands the slot back and waits, so unrelated jobs keep the capacity.
+            for (;;) {
+                if (jobId) await runtime.waitRunnable(jobId, signal);
+                release = await runtime.acquire(MAX_CONCURRENCY, signal);
+                if (!jobId || !runtime.jobs.get(jobId)?.paused) break;
+                release(); release = undefined;
+            }
+        }
+    }
     catch (error) { release?.(); parentSignal?.removeEventListener("abort", parentAbort); throw error; }
+    // Declared provider check before any spawn: cooling, blocked, unavailable or probe-busy never launches a child.
+    if (model) {
+        const launch = await providerLaunchState(model);
+        if (signal?.aborted) { release?.(); parentSignal?.removeEventListener("abort", parentAbort); throw new Error("Subagent was aborted"); } // an abort during the check spawns nothing and starts no fallback
+        if (launch.state !== "launch") {
+            release?.(); parentSignal?.removeEventListener("abort", parentAbort);
+            const remaining = fallbackModels ?? getFallbackSequence(model, agent.fallbackModel);
+            if (launch.replayable && remaining.length) {
+                const fallback = await runAgentAttempt(defaultCwd, dispatchDefaults, agents, agentName, task, cwd, step, signal, onUpdate, makeDetails, lease, remaining[0], remaining.slice(1));
+                fallback.stderr = `Model ${model} skipped (provider cooldown ${launch.state}); retried with ${remaining[0]}.\n${fallback.stderr}`;
+                return fallback;
+            }
+            return { agent: agentName, agentSource: agent.source, task, exitCode: 1, messages: [], stderr: `Model ${model} not launched: provider cooldown ${launch.state}.`, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 }, model, step, stopReason: "error", errorMessage: `provider cooldown ${launch.state}` };
+        }
+    }
     const worker = dispatchDefaults.monitor?.store.begin(agentName, task, model ?? "inherited", (inheritsDispatchConfig ? dispatchDefaults.thinkingLevel : undefined) ?? agent.thinking ?? "provider default", model ? dispatchDefaults.contextWindowFor?.(model) : undefined);
-    if (worker && dispatchDefaults.jobId) dispatchDefaults.runtime?.note(dispatchDefaults.jobId, worker.id);
+    if (worker && dispatchDefaults.jobId) dispatchDefaults.runtime?.note(dispatchDefaults.jobId, worker.id, dispatchDefaults.waitKey);
     let codeIntegrationsEnabled = false;
     try {
 	if (model) args.push("--model", model);
@@ -214,6 +281,7 @@ async function runSingleAgent(
 		if (!fs.existsSync(guardPath)) throw new Error("Claude subscription guard missing. Install npm:pi-claude-subscription-connector before launching an Anthropic subagent.");
 		args.push("--extension", guardPath);
 	}
+	args.push("--extension", path.join(getAgentDir(), "extensions", "subagent", "provider-cooldown-entry.ts")); // child guard, explicit despite --no-extensions
 	if (agent.thinking) args.push("--thinking", agent.thinking);
 	if (inheritsDispatchConfig && dispatchDefaults.thinkingLevel) {
 		args.push("--thinking", dispatchDefaults.thinkingLevel);
@@ -256,7 +324,7 @@ async function runSingleAgent(
 
 	try {
 		if (agent.systemPrompt.trim()) {
-			const tmp = await writePromptToTempFile(agent.name, agent.systemPrompt + (codeIntegrationsEnabled ? CODE_NAVIGATION_GUIDANCE + graphReferenceGuidance(cwd ?? defaultCwd) : ""));
+			const tmp = await writePromptToTempFile(agent.name, agent.systemPrompt + (codeIntegrationsEnabled ? CODE_NAVIGATION_GUIDANCE + graphReferenceGuidance(cwd ?? defaultCwd) : "") + COMPACT_HANDOFF_INSTRUCTIONS);
 			tmpPromptDir = tmp.dir;
 			tmpPromptPath = tmp.filePath;
 			args.push("--append-system-prompt", tmpPromptPath);
@@ -269,19 +337,20 @@ async function runSingleAgent(
             args.push("--extension", path.join(getAgentDir(), "extensions", "subagent", "pause-gate.ts"));
             args.push("--extension", path.join(getAgentDir(), "extensions", "subagent", "decision-relay.ts"));
         }
-        if (!dispatchDefaults.jobId) args.push(`Task: ${task}`);
+		if (signal?.aborted) throw new Error("Subagent was aborted"); // an abort during the prompt-file write spawns nothing
 		let wasAborted = false;
 
 		let removeAbort = () => {};
         const exitCode = await new Promise<number>((resolve) => {
 			const invocation = getPiInvocation(args);
+			dispatchDefaults.onSpawn?.();
 			const proc = spawn(invocation.command, invocation.args, {
 				cwd: cwd ?? defaultCwd,
                 env: {...process.env, ...cargoEnvDefaults(cwd ?? defaultCwd), PI_SUBAGENT_CONTROL_FILE: controlPath ?? "", [DECISION_RELAY_ENV]: dispatchDefaults.jobId ? "1" : ""},
 				shell: false,
-				stdio: [dispatchDefaults.jobId ? "pipe" : "ignore", "pipe", "pipe"],
+				stdio: ["pipe", "pipe", "pipe"],
 			});
-			const client = dispatchDefaults.jobId ? new RpcWorker(proc, controlPath) : undefined;
+			const client = new RpcWorker(proc, controlPath);
             proc.on("spawn", () => {
                 if (worker) dispatchDefaults.monitor?.store.started(worker.id);
                 if (client) {
@@ -294,6 +363,8 @@ async function runSingleAgent(
                 }
             });
             let buffer = "";
+            // One decoder per stream per spawn: a pipe chunk may end inside a multi-byte codepoint.
+            const stdoutDecoder = new StringDecoder("utf8"), stderrDecoder = new StringDecoder("utf8");
 
 			const processLine = (line: string) => {
 				if (!line.trim()) return;
@@ -333,8 +404,8 @@ async function runSingleAgent(
 							currentResult.usage.contextTokens = usage.totalTokens || 0;
 						}
 						if (!currentResult.model && msg.model) currentResult.model = msg.model;
-						if (msg.stopReason) currentResult.stopReason = msg.stopReason;
-						if (msg.errorMessage) currentResult.errorMessage = msg.errorMessage;
+						currentResult.stopReason = msg.stopReason; // the latest assistant decides; a missing reason must clear an earlier stop
+						currentResult.errorMessage = msg.errorMessage; // latest assistant decides, like stopReason
 					}
 					emitUpdate();
 				}
@@ -346,17 +417,18 @@ async function runSingleAgent(
 			};
 
 			proc.stdout.on("data", (data) => {
-				buffer += data.toString();
+				buffer += stdoutDecoder.write(data);
 				const lines = buffer.split("\n");
 				buffer = lines.pop() || "";
 				for (const line of lines) processLine(line);
 			});
 
 			proc.stderr.on("data", (data) => {
-				currentResult.stderr += data.toString();
+				currentResult.stderr += stderrDecoder.write(data);
 			});
 
 			proc.on("close", (code) => {
+				buffer += stdoutDecoder.end(); currentResult.stderr += stderrDecoder.end(); // flush a truncated trailing sequence before the trailing parse
 				if (buffer.trim()) processLine(buffer);
 				client?.close(); if (worker) dispatchDefaults.runtime?.detach(worker.id);
                 resolve(code ?? 1);
@@ -395,11 +467,13 @@ async function runSingleAgent(
 				(message) => message.role === "toolResult" || (message.role === "assistant" && message.content.some((part) => part.type === "toolCall")),
 			),
 		};
-		const nextModel = nextFallbackModel(retryResult, remainingFallbacks, wasAborted);
+		// A child guard refusal replays only when this parent's own store still says replayable (no health is read from text).
+		const guardRefused = !wasAborted && !retryResult.toolActivity && retryResult.stopReason === "error" && model !== undefined && await guardRefusalReplayable(model, retryResult.errorMessage);
+		const nextModel = guardRefused ? remainingFallbacks[0] : nextFallbackModel(retryResult, remainingFallbacks, wasAborted);
 		if (nextModel) {
-			const primaryError = currentResult.errorMessage || currentResult.stderr || getFinalOutput(currentResult.messages);
+			const primaryError = getResultOutput(currentResult);
             const updates = worker ? dispatchDefaults.runtime?.steeringFor(worker.id) ?? [] : [];
-			const fallbackResult = await runSingleAgent(
+			const fallbackResult = await runAgentAttempt(
 				defaultCwd,
 				dispatchDefaults,
 				agents,
@@ -410,6 +484,7 @@ async function runSingleAgent(
 				signal,
 				onUpdate,
 				makeDetails,
+				lease,
 				nextModel,
 				remainingFallbacks.slice(1),
 			);
@@ -445,18 +520,30 @@ const TaskItem = Type.Object({
 	agent: Type.String({ description: "Name of the agent to invoke" }),
 	task: Type.String({ description: "Task to delegate to the agent" }),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
+	readOnly: Type.Optional(Type.Boolean({ description: "Trusted declaration: this task only reads its checkout (default write). Not an OS sandbox." })),
 });
 
 const ChainItem = Type.Object({
 	agent: Type.String({ description: "Name of the agent to invoke" }),
 	task: Type.String({ description: "Task with optional {previous} placeholder for prior output" }),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process" })),
+	readOnly: Type.Optional(Type.Boolean({ description: "Trusted declaration: this step only reads its checkout (default write). Not an OS sandbox." })),
 });
 
 const AgentScopeSchema = StringEnum(["user", "project", "both"] as const, {
 	description: 'Which agent directories to use. Default: "user". Use "both" to include project-local agents.',
 	default: "user",
 });
+
+const DagNode = Type.Object({
+	id: Type.String({ pattern: "^[A-Za-z][A-Za-z0-9_-]{0,31}$", description: "Unique node ID: a letter first, then letters, digits, _ or -; max 32" }),
+	agent: Type.String({ description: "Name of the agent to invoke" }),
+	task: Type.String({ description: "Task for this node; direct parent reports are appended after it" }),
+	// Null is listed so the SDK keeps it for runtime refusal (its optional-null normalization would otherwise drop it); runtime treats null as invalid.
+	cwd: Type.Optional(Type.Union([Type.String({ description: "Working directory for this node" }), Type.Null()])),
+	dependsOn: Type.Optional(Type.Union([Type.Array(Type.String(), { description: "IDs of direct parent nodes" }), Type.Null()])),
+	readOnly: Type.Optional(Type.Union([Type.Boolean({ description: "Trusted declaration: this node only reads its checkout (default write). Not an OS sandbox." }), Type.Null()])),
+}, { additionalProperties: false });
 
 const SubagentParams = Type.Object({
     background: Type.Optional(Type.Boolean({description: "Default true: return a job ID immediately; completion arrives automatically. Set false to explicitly wait for the entire task.", default: true})),
@@ -465,13 +552,26 @@ const SubagentParams = Type.Object({
 	tasks: Type.Optional(Type.Array(TaskItem, { description: "Array of {agent, task} for parallel execution" })),
 	chain: Type.Optional(Type.Array(ChainItem, { description: "Array of {agent, task} for sequential execution" })),
 	agentScope: Type.Optional(AgentScopeSchema),
+	dag: Type.Optional(Type.Array(DagNode, { minItems: 1, maxItems: 8, description: "DAG mode: up to 8 nodes with dependsOn edges; each node runs as its own agent" })),
+	readOnly: Type.Optional(Type.Boolean({ description: "Trusted declaration for single mode: the task only reads its checkout (default write). Not an OS sandbox." })),
 	confirmProjectAgents: Type.Optional(
 		Type.Boolean({ description: "Prompt before running project-local agents. Default: true.", default: true }),
 	),
 	cwd: Type.Optional(Type.String({ description: "Working directory for the agent process (single mode)" })),
 });
 
+// Root keys come from the schema itself: dag mode refuses any other top-level key before launch.
+const SUBAGENT_ROOT_KEYS = new Set(Object.keys(SubagentParams.properties ?? {})); // no schema properties: empty set, dag mode fails closed
+
 export default function (pi: ExtensionAPI) {
+	registerProviderCooldown(pi);
+	pi.registerCommand("provider-cooldown", {
+		description: "Show provider cooldown state, or refresh one provider's auth after re-authenticating",
+		handler: async (args, ctx) => {
+			const result = await runProviderCooldownCommand(args);
+			ctx.ui.notify(result.message, result.type);
+		},
+	});
 	const monitor = new WorkerMonitor(pi);
     const decisions = new DecisionRelay();
     const runtime = new BackgroundWorkers(pi, monitor, decisions);
@@ -480,8 +580,8 @@ export default function (pi: ExtensionAPI) {
 		label: "Subagent",
 		description: [
 			"Delegate tasks to specialized subagents with isolated context. Background by default: return a job ID and keep responding to the user. Use subagent_control to list, steer, cancel or retrieve results. Do not repeatedly poll; completions arrive automatically. Do not claim a job is finished until its result arrives.",
-			"Available user roles: " + discoverAgents(process.cwd(), "user").agents.map(a => `${a.name}: ${a.description.split(".")[0]}`).join("; "),
-			"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).",
+			"Available user roles: " + discoverAgents(process.cwd(), "user").agents.map(a => a.name).join(", "),
+			"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder), dag (up to 8 nodes with dependsOn; a node runs after its parents are accepted).",
 			`Default agent scope is "user" (from ${path.join(getAgentDir(), "agents")}).`,
 			`To enable project-local agents in ${CONFIG_DIR_NAME}/agents, set agentScope: "both" (or "project").`,
 		].join(" "),
@@ -505,10 +605,12 @@ export default function (pi: ExtensionAPI) {
 			const hasChain = (params.chain?.length ?? 0) > 0;
 			const hasTasks = (params.tasks?.length ?? 0) > 0;
 			const hasSingle = Boolean(params.agent && params.task);
-			const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle);
+			const hasDag = params.dag !== undefined; // an empty dag array is still a present, ambiguous mode
+			const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle) + Number(hasDag);
+			const mode = hasDag ? "dag" : hasChain ? "chain" : hasTasks ? "parallel" : "single";
 
 			const makeDetails =
-				(mode: "single" | "parallel" | "chain") =>
+				(mode: "single" | "parallel" | "chain" | "dag") =>
 				(results: SingleResult[]): SubagentDetails => ({
 					mode,
 					agentScope,
@@ -526,7 +628,20 @@ export default function (pi: ExtensionAPI) {
 						},
 					],
 					details: makeDetails("single")([]),
+					isError: true,
 				};
+			}
+
+			// Validated before any project prompt, runtime start or launch: an invalid graph spawns nothing.
+			let dagNodes: DagNodeSpec[] | undefined;
+			if (hasDag) {
+				const unknownRoot = Object.keys(params).find((key) => !SUBAGENT_ROOT_KEYS.has(key));
+				if (unknownRoot !== undefined) return { content: [{ type: "text", text: `Invalid parameters: unknown top-level key "${unknownRoot}" in dag mode.` }], details: makeDetails("dag")([]), isError: true };
+				try {
+					dagNodes = validateDag(params.dag, { has: (name) => agents.some((a) => a.name === name) });
+				} catch (error) {
+					return { content: [{ type: "text", text: `Invalid DAG: ${error instanceof Error ? error.message : String(error)}` }], details: makeDetails("dag")([]), isError: true };
+				}
 			}
 
 			if (
@@ -538,6 +653,7 @@ export default function (pi: ExtensionAPI) {
 				const requestedAgentNames = new Set<string>();
 				if (params.chain) for (const step of params.chain) requestedAgentNames.add(step.agent);
 				if (params.tasks) for (const t of params.tasks) requestedAgentNames.add(t.agent);
+				if (params.dag) for (const node of params.dag) requestedAgentNames.add(node.agent);
 				if (params.agent) requestedAgentNames.add(params.agent);
 
 				const projectAgentsRequested = Array.from(requestedAgentNames)
@@ -560,18 +676,45 @@ export default function (pi: ExtensionAPI) {
 			}
 
             if (!(ctx as any).subagentJobId) {
-                try { runtime.assertCanLaunch((params.chain ?? params.tasks ?? [{agent: params.agent!}]).map(t => t.agent)); }
+                try { runtime.assertCanLaunch((params.dag ?? params.chain ?? params.tasks ?? [{agent: params.agent!}]).map(t => t.agent)); }
                 catch (error) { return {isError: true, content: [{type: "text", text: String(error)}]}; }
             }
             if (params.background !== false) {
-                const requests = params.chain ?? params.tasks ?? [{agent: params.agent!, task: params.task!, cwd: params.cwd}];
+                const requests = params.dag ?? params.chain ?? params.tasks ?? [{agent: params.agent!, task: params.task!, cwd: params.cwd}];
                 if (params.tasks && params.tasks.length > MAX_PARALLEL_TASKS) return {isError: true, content: [{type: "text", text: "Max parallel tasks is 8."}], details: makeDetails("parallel")([])};
                 const unknown = requests.filter(t => !agents.some(a => a.name === t.agent)).map(t => t.agent);
                 if (unknown.length) return {isError: true, content: [{type: "text", text: "Unknown agents: " + unknown.join(", ")}], details: makeDetails("single")([])};
                 if (signal?.aborted) throw new Error("Dispatch was aborted");
                 const job = runtime.start((jobSignal, jobId) => subagentTool.execute(_toolCallId, {...params, background: false, confirmProjectAgents: false}, jobSignal, undefined, {...ctx, subagentJobId: jobId} as any));
-                return {content: [{type: "text", text: "Started background job " + job.id + ". Roles: " + requests.map(t => t.agent).join(", ") + ". This is a launch acknowledgement, not a completed task. Continue responding or doing independent work; completion will arrive automatically. Use subagent_control list to obtain worker IDs, steer to change direction, or cancel to stop."}], details: {...makeDetails(hasChain ? "chain" : hasTasks ? "parallel" : "single")([]), jobId: job.id, background: true}};
+                return {content: [{type: "text", text: "Started background job " + job.id + ". Roles: " + requests.map(t => t.agent).join(", ") + ". This is a launch acknowledgement, not a completed task. Continue responding or doing independent work; completion will arrive automatically. Use subagent_control list to obtain worker IDs, steer to change direction, or cancel to stop."}], details: {...makeDetails(mode)([]), jobId: job.id, background: true}};
             }
+
+			if (dagNodes) {
+				const launched = new Set<string>();
+				const rows = await runDag(dagNodes, {
+					agents: { has: (name) => agents.some((a) => a.name === name) },
+					concurrency: MAX_CONCURRENCY,
+					signal,
+					accept: (result: SingleResult) => !isFailedResult(result),
+					report: (result: SingleResult) => withTerminalDiagnostics(extractFinalText(result.messages), result),
+					run: (node, parents, nodeSignal) => {
+						return runSingleAgent(ctx.cwd, { ...dispatchDefaults, waitKey: node.id, onSpawn: () => launched.add(node.id) }, agents, node.agent, appendParentReports(node.task, parents), node.cwd, undefined, nodeSignal, undefined, makeDetails("dag"), node.readOnly ? "read" : "write");
+					},
+				});
+				const rowById = new Map(rows.map((row) => [row.nodeId, row]));
+				const results: SingleResult[] = dagNodes.map((node) => {
+					const row = rowById.get(node.id)!;
+					const cause = row.cause === undefined ? undefined : row.cause instanceof Error ? row.cause.message : String(row.cause);
+					const base: SingleResult = row.result ?? { agent: node.agent, agentSource: "unknown", task: node.task, exitCode: 1, messages: [], stderr: "", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 }, stopReason: cause === undefined ? undefined : "error", errorMessage: cause };
+					return { ...base, nodeId: node.id, dag: { status: row.status, blockedBy: row.blockedBy, started: launched.has(node.id) } };
+				});
+				const accepted = results.filter((r) => r.dag?.status === "accepted").length;
+				return {
+					content: [{ type: "text", text: `DAG: ${accepted}/${results.length} nodes accepted\n\n${results.map(retainedEntryBlock).join("\n\n---\n\n")}` }],
+					details: makeDetails("dag")(results),
+					isError: accepted < results.length,
+				};
+			}
 
 			if (params.chain && params.chain.length > 0) {
 				const results: SingleResult[] = [];
@@ -579,7 +722,7 @@ export default function (pi: ExtensionAPI) {
 
 				for (let i = 0; i < params.chain.length; i++) {
 					const step = params.chain[i];
-					const taskWithContext = step.task.replace(/\{previous\}/g, previousOutput);
+					const taskWithContext = step.task.replace(/\{previous\}/g, () => previousOutput); // function replacer: `$&`, `$'` etc. in prior output stay literal
 
 					// Create update callback that includes all previous results
 					const chainUpdate: OnUpdateCallback | undefined = onUpdate
@@ -607,6 +750,7 @@ export default function (pi: ExtensionAPI) {
 						signal,
 						chainUpdate,
 						makeDetails("chain"),
+						step.readOnly ? "read" : "write",
 					);
 					results.push(result);
 
@@ -619,7 +763,7 @@ export default function (pi: ExtensionAPI) {
 							isError: true,
 						};
 					}
-					previousOutput = getFinalOutput(result.messages);
+					previousOutput = extractFinalText(result.messages);
 				}
 				return {
 					content: [{ type: "text", text: getFinalOutput(results[results.length - 1].messages) || "(no output)" }],
@@ -686,6 +830,7 @@ export default function (pi: ExtensionAPI) {
 							}
 						},
 						makeDetails("parallel"),
+						t.readOnly ? "read" : "write",
 					);
 					allResults[index] = result;
 					emitParallelUpdate();
@@ -694,8 +839,8 @@ export default function (pi: ExtensionAPI) {
 
 				const successCount = results.filter((r) => !isFailedResult(r)).length;
 				const summaries = results.map((r) => {
-					const output = truncateParallelOutput(getResultOutput(r));
-					const status = isFailedResult(r)
+					const output = getResultOutput(r);
+					const status = isIncompleteStop(r) ? incompleteLabel(r.stopReason) : isFailedResult(r)
 						? `failed${r.stopReason && r.stopReason !== "end" ? ` (${r.stopReason})` : ""}`
 						: "completed";
 					return `### [${r.agent}] ${status}\n\n${output}`;
@@ -724,12 +869,13 @@ export default function (pi: ExtensionAPI) {
 					signal,
 					onUpdate,
 					makeDetails("single"),
+					params.readOnly ? "read" : "write",
 				);
 				const isError = isFailedResult(result);
 				if (isError) {
 					const errorMsg = getResultOutput(result);
 					return {
-						content: [{ type: "text", text: `Agent ${result.stopReason || "failed"}: ${errorMsg}` }],
+						content: [{ type: "text", text: `Agent ${isIncompleteStop(result) ? incompleteLabel(result.stopReason) : result.stopReason || "failed"}: ${errorMsg}` }],
 						details: makeDetails("single")([result]),
 						isError: true,
 					};
@@ -750,8 +896,8 @@ export default function (pi: ExtensionAPI) {
         renderShell: "self",
         renderCall(args, theme) {
             if (args.background !== false) return {invalidate() {}, render: () => []};
-            const items = args.chain ?? args.tasks ?? (args.agent ? [{agent: args.agent}] : []);
-            const mode = args.chain ? "chain" : args.tasks ? "parallel" : "single";
+            const items = args.dag ?? args.chain ?? args.tasks ?? (args.agent ? [{agent: args.agent}] : []);
+            const mode = args.dag ? "dag" : args.chain ? "chain" : args.tasks ? "parallel" : "single";
             const names = items.map(item => item.agent).join(", ").replace(/[\r\n\x1b]/g, " ").slice(0, 160);
             return monitor.compact(theme.fg("toolTitle", `subagent · ${mode} · ${names}`));
         },

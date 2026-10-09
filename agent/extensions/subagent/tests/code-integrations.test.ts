@@ -30,7 +30,7 @@ function effectiveTools(agent: ReturnType<typeof role>) {
   assert.ok(index >= 0 && args[index + 1], "effective allowlist missing");
   return args[index + 1].split(",");
 }
-for (const name of ["rust-worker", "frontend-worker"]) {
+for (const name of ["backend-worker", "frontend-worker", "general-worker"]) {
   test(`${name} actual frontmatter keeps precise edit, excludes write and six Serena mutations`, () => {
     const agent = role(name);
     assert.ok(agent.tools.includes("edit"));
