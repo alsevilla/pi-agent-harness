@@ -1,4 +1,4 @@
-import { matchesKey, Key, getKeybindings, isKeyRelease, truncateToWidth, wrapTextWithAnsi, visibleWidth, ScrollView, MouseRegion, type Component, type ScrollViewScrollbar, type TuiMouseEvent, type TUI } from "@earendil-works/pi-tui";
+import { matchesKey, Key, getKeybindings, isKeyRelease, truncateToWidth, wrapTextWithAnsi, visibleWidth, ScrollView, MouseRegion, type Component, type ScrollViewScrollbar, type TuiMouseEvent, type TuiMouseEventResult, type TUI } from "@earendil-works/pi-tui";
 import { AssistantMessageComponent, ToolExecutionComponent, createReadToolDefinition, createBashToolDefinition, createPowerShellToolDefinition, createEditToolDefinition, createWriteToolDefinition, createGrepToolDefinition, createFindToolDefinition, createLsToolDefinition, type ExtensionAPI, type ExtensionContext, type ToolRenderers } from "@earendil-works/pi-coding-agent";
 
 export type WorkerState = "initializing" | "running" | "pausing" | "paused" | "completed" | "failed" | "aborted";
@@ -37,7 +37,7 @@ export function scrollbarThumb(track: number, content: number, scrollTop: number
   const maxScrollTop = Math.max(0, content - track);
   return {top: maxScrollTop === 0 ? 0 : Math.round((scrollTop / maxScrollTop) * (track - height)), height};
 }
-// Idle glyphs from pi-tui paintScrollbar; this indicator has no hover or drag state.
+// Idle glyphs from pi-tui paintScrollbar; hover and drag paint the active thumb.
 const SCROLLBAR_THUMB = "┃", SCROLLBAR_TRACK = "│";
 function toolCommand(name: string, args: any): string {
   if (args?.command) return "$ " + oneLine(args.command).slice(0, 1000) + (args.timeout ? " (timeout " + args.timeout + "s)" : "");
@@ -218,12 +218,16 @@ export class WorkerInspector implements Component {
   private cacheWorker?: string;
   private turns = new Map<string, {component: ToolExecutionComponent; revision: number; tool: ToolActivity}>();
   private regions: {component: ToolExecutionComponent; top: number; height: number}[] = [];
+  // Gutter cell geometry (inner, post-frame coordinates) for the current render; undefined when no gutter is painted.
+  private track?: {col: number; top: number; height: number};
+  private drag?: {grab: number};
   constructor(private store: WorkerStore, private tui: TUI, private theme: any, private done: () => void, id?: string, private positions = new Map<string, ReadingPosition>(), private scrollbarMode: () => ScrollViewScrollbar = () => "auto") { this.selectedId = id; }
   invalidate() { for (const entry of this.turns.values()) entry.component.invalidate(); for (const component of this.responses.values()) component.invalidate(); }
   dispose() {
     if (this.cacheWorker) this.positions.set(this.cacheWorker, {top: this.viewport.scrollTop, following: this.viewport.isFollowingEnd});
     for (const entry of this.turns.values()) entry.component.updateResult({content: [{type: "text", text: entry.tool.output}], details: entry.tool.details, isError: entry.tool.state === "error"}, false);
     this.turns.clear(); this.responses.clear(); this.regions = [];
+    this.clearPointer();
   }
   private turn(tool: ToolActivity): ToolExecutionComponent {
     let entry = this.turns.get(tool.id);
@@ -258,7 +262,7 @@ export class WorkerInspector implements Component {
     this.viewport.setScrollbar(scrollbar);
     const gutter = scrollbar !== "hidden" && width > 1;
     const bodyWidth = gutter ? width - 1 : width;
-    this.jump = undefined;
+    this.jump = undefined; this.track = undefined;
     const all = this.store.list();
     const selected = all.find(r => r.id === this.selectedId) ?? all[0]; this.selectedId = selected?.id;
     const index = selected ? all.indexOf(selected) : 0;
@@ -310,6 +314,7 @@ export class WorkerInspector implements Component {
         this.pendingPosition = undefined;
       }
       this.bodyTop = rows.length;
+      this.track = gutter ? {col: width - 1, top: this.bodyTop, height: this.viewport.viewportHeight} : undefined;
       const visible = this.documentLines.slice(this.viewport.scrollTop, this.viewport.scrollTop + available);
       if (!this.viewport.isFollowingEnd && visible.length) {
         // Same label, styling, and click-to-bottom behavior as Pi's fullscreen transcript.
@@ -323,11 +328,12 @@ export class WorkerInspector implements Component {
       // One gutter cell per body row. Thumb and track show only while the native ScrollView reports the bar visible.
       const thumb = scrollbarThumb(available, body.length, this.viewport.scrollTop);
       const showBar = this.viewport.isScrollbarVisible;
+      const glyph = this.viewport.isScrollbarActive ? "█" : SCROLLBAR_THUMB;
       for (let row = 0; row < available; row++) {
         const line = visible[row] ?? "";
         if (!gutter) { rows.push(line); continue; }
         const clipped = truncateToWidth(line, bodyWidth, "");
-        const cell = !showBar ? " " : row >= thumb.top && row < thumb.top + thumb.height ? this.theme.fg("scrollbarThumb", SCROLLBAR_THUMB) : this.theme.fg("scrollbarTrack", SCROLLBAR_TRACK);
+        const cell = !showBar ? " " : row >= thumb.top && row < thumb.top + thumb.height ? this.theme.fg("scrollbarThumb", glyph) : this.theme.fg("scrollbarTrack", SCROLLBAR_TRACK);
         rows.push(clipped + " ".repeat(Math.max(0, bodyWidth - visibleWidth(clipped))) + cell);
       }
     }
@@ -362,9 +368,59 @@ export class WorkerInspector implements Component {
     else if (matchesKey(data, "ctrl+o")) { this.expanded = !this.expanded; for (const entry of this.turns.values()) entry.component.setExpanded(this.expanded); }
     this.tui.requestRender();
   }
-  handleMouse(event: TuiMouseEvent) {
+  // Gutter cell in inner (post-frame) coordinates.
+  private onTrack(x: number, y: number): boolean {
+    const t = this.track;
+    return !!t && x === t.col && y >= t.top && y < t.top + t.height;
+  }
+  // Auto reveals only when the transcript overflows; always reveals even when it fits.
+  private barInteractive(x: number, y: number): boolean {
+    return this.onTrack(x, y) && (this.viewport.scrollbar === "always" || this.documentLines.length > this.viewport.viewportHeight);
+  }
+  private hover(x: number, y: number): TuiMouseEventResult | undefined {
+    if (this.drag) return undefined;
+    const on = this.barInteractive(x, y);
+    if (on === this.viewport.isScrollbarActive) return undefined;
+    this.viewport.setScrollbarActive(on);
+    return {handled: on, render: true};
+  }
+  // Maps a track-relative thumb top to scrollTop. No disableFollow: reaching the end resumes following.
+  private seekThumb(top: number) {
+    const h = this.viewport.viewportHeight, content = this.documentLines.length;
+    const maxThumb = h - scrollbarThumb(h, content, 0).height;
+    const offset = Math.max(0, Math.min(maxThumb, top));
+    this.viewport.scrollTo(maxThumb <= 0 ? 0 : Math.round((offset / maxThumb) * Math.max(0, content - h)));
+  }
+  private dragThumb(x: number, y: number, release: boolean): TuiMouseEventResult {
+    // Runs before the frame check so a captured drag keeps clamping when the pointer leaves the overlay.
+    if (this.track) this.seekThumb(y - this.track.top - this.drag!.grab);
+    if (!release) return {handled: true, capture: true, render: true};
+    this.drag = undefined;
+    this.viewport.setScrollbarActive(this.barInteractive(x, y));
+    return {handled: true, render: true};
+  }
+  // Ends hover and any captured thumb drag. Safe to repeat.
+  clearPointer() { this.drag = undefined; this.viewport.setScrollbarActive(false); }
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    const ox = this.framed ? 2 : 0;
+    if (this.drag && (event.type === "drag" || event.type === "release")) return this.dragThumb(event.x - ox, event.y - ox, event.type === "release");
+    if (event.type === "move") return this.hover(event.x - ox, event.y - ox);
+    // Any press starts a new gesture, so it ends a stale drag even when the frame rejects it below.
+    if (event.type === "press") this.drag = undefined;
     if (this.framed) { if (event.x < 2 || event.x >= event.width - 2 || event.y < 2 || event.y >= event.height - 2) return; event = {...event, x: event.x - 2, y: event.y - 2, width: event.width - 4, height: event.height - 4}; }
+    const track = this.track;
+    if (track && event.type === "press" && event.button === "left" && this.viewport.isScrollbarVisible && this.onTrack(event.x, event.y)) {
+      const rel = event.y - track.top;
+      const thumb = scrollbarThumb(track.height, this.documentLines.length, this.viewport.scrollTop);
+      const onThumb = rel >= thumb.top && rel < thumb.top + thumb.height;
+      const grab = onThumb ? rel - thumb.top : Math.floor(thumb.height / 2);
+      this.drag = {grab};
+      if (!onThumb) this.seekThumb(rel - grab);
+      this.viewport.setScrollbarActive(true);
+      return {handled: true, capture: true, render: true};
+    }
     if (event.type === "click" && event.button === "left") {
+      if (this.onTrack(event.x, event.y) && this.viewport.isScrollbarVisible) return {handled: true, render: false};
       if (this.jump && event.y === this.jump.row && event.x >= this.jump.col && event.x < this.jump.col + this.jump.width) { this.viewport.scrollToEnd(); return {handled: true, render: true}; }
       const r = this.shown[event.y - this.firstRow];
       if (r) { this.selectedId = r.id; return { handled: true, render: true }; }
@@ -377,7 +433,7 @@ export class WorkerInspector implements Component {
         }
       }
     }
-    if (event.type === "wheel") { this.viewport.scrollBy(event.wheelDelta ?? 0); return { handled: true, render: true }; }
+    if (event.type === "wheel") { this.hover(event.x, event.y); this.viewport.scrollBy(event.wheelDelta ?? 0); return { handled: true, render: true }; }
     return undefined;
   }
 }
@@ -445,16 +501,22 @@ export class WorkerMonitor {
         return inspector;
       }, { overlay: true, overlayOptions: { width: "98%", maxHeight: "94%", anchor: "center", margin: 1 }, onHandle: handle => {
         const outsideClick = (data: string) => {
+          // Focus loss ends hover and any captured drag; the listener returns nothing, so Pi still sees the event.
+          if (data === "\x1b[O") { inspector?.clearPointer(); return; }
           if (handle.isHidden()) return;
           const bounds = handle.getBounds(); if (!bounds) return;
           const sgr = /^\x1b\[<(\d+);(\d+);(\d+)M$/.exec(data);
           const legacy = data.length === 6 && data.startsWith("\x1b[M");
           const button = sgr ? Number(sgr[1]) : legacy ? data.charCodeAt(3) - 32 : -1;
-          // Only a primary-button press: movement, release, and wheel input do not dismiss.
-          if (button < 0 || (button & 3) !== 0 || (button & 96) !== 0) return;
+          if (button < 0) return;
           const x = sgr ? Number(sgr[2]) - 1 : data.charCodeAt(4) - 33;
           const y = sgr ? Number(sgr[3]) - 1 : data.charCodeAt(5) - 33;
-          if (x < bounds.col || x >= bounds.col + bounds.width || y < bounds.row || y >= bounds.row + bounds.height) {
+          const outside = x < bounds.col || x >= bounds.col + bounds.width || y < bounds.row || y >= bounds.row + bounds.height;
+          // Buttonless motion outside ends hover; a captured left drag (bit 32, button 0) keeps its capture.
+          if (outside && (button & 96) === 32 && (button & 3) === 3) inspector?.clearPointer();
+          // Only a primary-button press: movement, release, and wheel input do not dismiss.
+          if ((button & 3) !== 0 || (button & 96) !== 0) return;
+          if (outside) {
             // Model/editor changes can move focus away while this overlay remains visible.
             // Raise this specific overlay before done() removes the top overlay.
             handle.focus();
