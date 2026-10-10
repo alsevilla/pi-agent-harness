@@ -80,6 +80,9 @@ export const CODE_NAVIGATION_GUIDANCE = "";
 export function graphReferenceGuidance() {
 	return "";
 }
+export function packageResourceGuidance() {
+	return "";
+}
 export function cargoEnvDefaults() {
 	return {};
 }

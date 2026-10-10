@@ -1,0 +1,52 @@
+{
+  "commit": "861c095cae2d2cd8313706c4af54d8d832865571",
+  "roles_path": "agent/roles.json",
+  "roles_sha256": "c6073552e4567e8aadd1902652ba4963ba3aedbadd63aaefde7b971657023412",
+  "generic": [
+    "api-specialist",
+    "architecture-specialist",
+    "backend-worker",
+    "concurrency-specialist",
+    "debugger",
+    "devops-specialist",
+    "frontend-worker",
+    "general-worker",
+    "observability-specialist",
+    "oracle",
+    "performance-specialist",
+    "release-engineer",
+    "reviewer",
+    "scout",
+    "security-specialist",
+    "sqlite-specialist",
+    "test-engineer",
+    "ui-ux-specialist"
+  ],
+  "excluded": [
+    "attendance-domain-specialist",
+    "event-reconciliation-specialist",
+    "hardware-integration",
+    "messaging-specialist",
+    "privacy-compliance-specialist"
+  ],
+  "agents_sha256": {
+    "api-specialist": "ea5305d324713f0facc9c2e6029273454d976504b2bee9b75689757ccdcba9e9",
+    "architecture-specialist": "d126f32519dcf84337e5c5efdeb133d1f5ed59aff086f2f228091b55c2ffe9ee",
+    "backend-worker": "bc49a3b846f3c270519e20b9966a52241e258552377944842efc9e66a84365fa",
+    "concurrency-specialist": "834a907070692b215d00c8c70ab4c8c34ceb401e7ea1d41c6f08bd1c16e93f68",
+    "debugger": "008d6b833d47031da61882d3763b607d66880a9a8fb0492d3f6ac4b06670d4e0",
+    "devops-specialist": "3d235ea959e1438ce6ad8f55aef56d17d83236d03ef9e19db741d82cba79b963",
+    "frontend-worker": "ef55acbe459bf53ac85257072855d58347b0d90fd797efab1cd91b36d63c293c",
+    "general-worker": "c777c23fac854932b643990222be60ca6af9dd07613c0d97eaa7f88d867684aa",
+    "observability-specialist": "d9f7d5f7d685c0d8ea0714ebd02e424d8c03b53dccdeb68e799613fcadb18f91",
+    "oracle": "0d7a8c4ffb3fd3b85a908cd66636c0a140bfd628330936f56e63cbfd0592278f",
+    "performance-specialist": "cc213cc4966fcd4737013fb77642f39953691bfcf8d3768c7018ecc36bb98fa2",
+    "release-engineer": "22a4838d249efee282c9e6052b065cf5f52779542116406108d452835f60681a",
+    "reviewer": "63a8063e4d77e0ac112747358fb856195a68c0f83a92e37312b5d0055878dde5",
+    "scout": "39273d6165dde4eb27c633494c8621f8710f4e9009d10e69721e4453365485b4",
+    "security-specialist": "f3be1dace6aba9f4a8feb006a0736acc24fc4170282ab41aa8fde825d1fa1948",
+    "sqlite-specialist": "682f5a30c871312b6a6c9d969603cdc018885c81d7f77ce0308e94fc30282f55",
+    "test-engineer": "d98dc3b661f7764db955eb03397a1c013c2a5f4781040595899abb05c5eca606",
+    "ui-ux-specialist": "f9ce28c266e0738badef84c0cc36f1a3249ebd6bcfe0b75e09cd3eaf05e633fb"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "dotnet-worker",
+  "description": "Implements scoped .NET changes using the native SDK, with focused tests.",
+  "instructions": "You implement a scoped change in an existing .NET project. Work only inside the assigned project. Prefer built-in .NET SDK APIs and the existing project patterns; add no new packages and do not install the .NET SDK. Keep changes minimal, preserve unrelated code and user changes, and run the focused dotnet test or build command that covers your change. Report files changed, checks run with their actual results, and missing evidence.",
+  "model": "anthropic/claude-haiku-5-5",
+  "thinking": "low",
+  "fallbackModel": "openai-codex/gpt-6-luna || github-copilot/gpt-6-luna",
+  "writer": true,
+  "shell": "powershell",
+  "skill": {
+    "name": "dotnet-sdk-first",
+    "description": "Use the native .NET SDK first when editing .NET projects.",
+    "instructions": "Prefer built-in .NET SDK APIs and the project's existing patterns. Add no new NuGet packages unless the assignment explicitly allows them. Keep changes minimal and run the focused dotnet test or build for the code you touched."
+  }
+}

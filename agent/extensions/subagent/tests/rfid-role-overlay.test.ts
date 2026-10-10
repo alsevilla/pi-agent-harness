@@ -2,6 +2,7 @@ import { test } from "bun:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import { fileURLToPath } from "node:url";
+import { parseFrontmatter } from "../../../install/releases/1.1.0/node_modules/@earendil-works/pi-coding-agent/dist/index.js";
 
 const agentDir = fileURLToPath(new URL("../../../", import.meta.url));
 const integrations = JSON.parse(fs.readFileSync(new URL("../integrations.json", import.meta.url), "utf8"));
@@ -17,10 +18,14 @@ const newRoles = [
 
 function frontmatter(name: string) {
   const path = new URL(`../../../agents/${name}.md`, import.meta.url);
-  const text = fs.readFileSync(path, "utf8");
-  const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  assert.ok(match, `${name}: frontmatter missing`);
-  const field = (key: string) => match[1].match(new RegExp(`^${key}:\\s*(.*)$`, "m"))?.[1]?.trim();
+  return parseDefinition(name, fs.readFileSync(path, "utf8"));
+}
+
+// Values come from the public parseFrontmatter that agents.ts uses, so YAML quoting is decoded: fallbackModel: "" and a bare key both mean the empty string.
+function parseDefinition(name: string, text: string) {
+  assert.ok(/^---\r?\n[\s\S]*?\r?\n---/.test(text), `${name}: frontmatter missing`);
+  const { frontmatter: fm } = parseFrontmatter<Record<string, unknown>>(text);
+  const field = (key: string) => (fm[key] === null ? "" : (fm[key] as string | undefined));
   return { text, name: field("name"), tools: field("tools") ?? "", model: field("model"), fallbackModel: field("fallbackModel"), thinking: field("thinking") };
 }
 
@@ -145,4 +150,13 @@ test("RFID routing preserves domain boundaries and returns missing policy to mai
   assert.match(privacy, /Do not assume.*applicable law/is);
   assert.match(route, /self-contained packet.*exact unresolved question/is);
   assert.match(route, /return unresolved school.*policy to main/is);
+});
+
+test("quoted empty fallbackModel decodes to the registry empty value; a non-empty fallback still differs", () => {
+  const doc = (fallback: string) => `---\nname: probe\nmodel: anthropic/claude-haiku-5-5\n${fallback}\nthinking: low\ntools: read\n---\nbody\n`;
+  assert.equal(parseDefinition("probe", doc('fallbackModel: ""')).fallbackModel, "");
+  assert.equal(parseDefinition("probe", doc("fallbackModel: ''")).fallbackModel, "");
+  // Discriminating control: a real fallback must not compare equal to the empty registry value.
+  assert.notEqual(parseDefinition("probe", doc('fallbackModel: "github-copilot/gpt-6-luna"')).fallbackModel, "");
+  assert.equal(parseDefinition("probe", doc('fallbackModel: "github-copilot/gpt-6-luna"')).fallbackModel, "github-copilot/gpt-6-luna");
 });
