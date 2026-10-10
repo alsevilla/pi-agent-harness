@@ -330,7 +330,7 @@ This skill may be used by:
 - `observability-specialist` — required runtime signals;
 - `reviewer` — challenge unsupported capacity/resilience claims.
 
-`rust-worker` implements separately authorized fixes. This skill itself does not
+`backend-worker` implements separately authorized fixes. This skill itself does not
 grant source mutation.
 
 ## Output Contract

@@ -19,7 +19,7 @@ mutation.
 When a task requires an unresolved decision about reader/device protocol,
 identity, lifecycle, disconnect/reconnect, malformed/partial input, physical
 duplicate reads, initialization, recovery, or hardware failure semantics,
-analyze it **before** `rust-worker` implements the integration.
+analyze it **before** `backend-worker` implements the integration.
 
 Implementation against an already-defined device contract may proceed directly.
 
@@ -73,7 +73,7 @@ Do not solve unreliable hardware by silently discarding arbitrary events.
 Prefer explicit device state and observable failure handling.
 
 Coordinate with:
-- `rust-worker` for implementation;
+- `backend-worker` for backend implementation;
 - `concurrency-specialist` for async and multi-reader behavior;
 - `sqlite-specialist` when device events affect persistent data;
 - `observability-specialist` for reader health monitoring.

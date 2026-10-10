@@ -3,7 +3,7 @@
 This skill supplies persistence guidance beneath the engineering lifecycle.
 
 `sqlite-specialist` normally owns read-only database analysis.
-`rust-worker` remains the normal implementation writer.
+`backend-worker` remains the normal implementation writer.
 
 ## First principle
 

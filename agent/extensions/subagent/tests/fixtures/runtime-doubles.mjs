@@ -4,13 +4,12 @@ import { EventEmitter } from "node:events";
 import * as os from "node:os";
 import * as path from "node:path";
 
-// Scripted child process: globalThis.__piSubagentFakeSpawn(args) returns { events, exitCode, hang, afterSpawn }.
+// Scripted child process over the RPC transport: the task arrives as a stdin "prompt" line; the plan is chosen from that prompt, which is then acknowledged and played.
+// globalThis.__piSubagentFakeSpawn(args, task) returns { events, exitCode, hang, afterSpawn }.
 export function spawn(_command, args) {
-	const plan = globalThis.__piSubagentFakeSpawn(args);
 	const child = new EventEmitter();
 	child.stdout = new EventEmitter();
 	child.stderr = new EventEmitter();
-	child.stdin = null;
 	child.exitCode = null;
 	child.signalCode = null;
 	let closed = false;
@@ -24,12 +23,28 @@ export function spawn(_command, args) {
 		child.signalCode = "SIGTERM";
 		queueMicrotask(() => close(null));
 	};
-	queueMicrotask(() => {
-		child.emit("spawn");
-		for (const event of plan.events ?? []) child.stdout.emit("data", JSON.stringify(event) + "\n");
-		plan.afterSpawn?.();
-		if (!plan.hang) close(plan.exitCode ?? 0);
-	});
+	const stdin = new EventEmitter();
+	stdin.writable = true;
+	stdin.end = () => {};
+	stdin.write = (chunk, callback) => {
+		for (const line of String(chunk).split("\n")) {
+			if (!line.trim()) continue;
+			const message = JSON.parse(line);
+			if (message.type !== "prompt") continue;
+			const plan = globalThis.__piSubagentFakeSpawn(args, message.message);
+			queueMicrotask(() => {
+				child.stdout.emit("data", JSON.stringify({ type: "response", id: message.id, success: true, data: { disposition: "started" } }) + "\n");
+				for (const event of plan.events ?? []) child.stdout.emit("data", JSON.stringify(event) + "\n");
+				if (plan.stderr) child.stderr.emit("data", plan.stderr);
+				plan.afterSpawn?.();
+				if (!plan.hang) close(plan.exitCode ?? 0);
+			});
+		}
+		callback?.(null);
+		return true;
+	};
+	child.stdin = stdin;
+	queueMicrotask(() => child.emit("spawn"));
 	return child;
 }
 
@@ -63,6 +78,9 @@ export function configureCodeIntegrations() {
 }
 export const CODE_NAVIGATION_GUIDANCE = "";
 export function graphReferenceGuidance() {
+	return "";
+}
+export function packageResourceGuidance() {
 	return "";
 }
 export function cargoEnvDefaults() {

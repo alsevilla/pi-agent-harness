@@ -30,8 +30,12 @@ async function runNodeSuite() {
 	const childUrl = dataModule("export function spawn(command, args, options) { return globalThis.__piDecisionSpawn(command, args, options); }");
 	const monitorUrl = dataModule("export class WorkerMonitor { constructor() { this.store = globalThis.__piDecisionStore; this.control = undefined; } }");
 	const indexUrl = new URL("../index.ts", import.meta.url).href;
+	const entryUrl = new URL("../provider-cooldown-entry.ts", import.meta.url).href;
+	// Offline stub for the cooldown entry's pi-ai/compat delegate factories and stream constructor; never called in these tests.
+	const cooldownStubUrl = dataModule("export const anthropicMessagesApi = () => ({ streamSimple: () => { throw new Error(\"offline stub\"); } }); export const openAICodexResponsesApi = anthropicMessagesApi; export function createAssistantMessageEventStream() { throw new Error(\"offline stub\"); }");
 	registerHooks({
 		resolve(specifier: string, context: { parentURL?: string }, nextResolve: (s: string, c: object) => { url: string }) {
+			if (specifier === "@earendil-works/pi-ai/compat" || (specifier === "@earendil-works/pi-ai" && context.parentURL === entryUrl)) return { url: cooldownStubUrl, shortCircuit: true };
 			if (specifier === "@earendil-works/pi-coding-agent" || specifier === "@earendil-works/pi-ai" || specifier === "typebox") return { url: doublesUrl, shortCircuit: true };
 			if (specifier === "node:child_process") return { url: childUrl, shortCircuit: true };
 			if (specifier === "./monitor.ts" && context.parentURL === indexUrl) return { url: monitorUrl, shortCircuit: true };
@@ -80,8 +84,9 @@ async function runNodeSuite() {
 		child.signalCode = null;
 		child.stdin = new EventEmitter();
 		child.stdin.writable = true;
+		// Only background jobs load the relay extension; foreground runs are RPC-piped too, so stdio no longer marks them.
 		const rec: any = {
-			args, env: options.env, foreground: options.stdio?.[0] === "ignore", lines: [] as any[], closed: false, stdin: child.stdin, fault: undefined as string | undefined, hold: false, held: [] as Array<() => void>, release() { for (const run of rec.held.splice(0)) run(); },
+			args, env: options.env, foreground: !args.some((arg) => arg.endsWith("decision-relay.ts")), lines: [] as any[], closed: false, stdin: child.stdin, fault: undefined as string | undefined, hold: false, held: [] as Array<() => void>, release() { for (const run of rec.held.splice(0)) run(); },
 			emit(event: object) { child.stdout.emit("data", JSON.stringify(event) + "\n"); },
 			exit(code: number | null = 0) { if (rec.closed) return; rec.closed = true; child.exitCode = code; child.emit("close", code); },
 		};
@@ -115,6 +120,8 @@ async function runNodeSuite() {
 			tools, messages,
 			on(name: string, fn: (...a: any[]) => unknown) { handlers.set(name, [...(handlers.get(name) ?? []), fn]); },
 			registerTool(def: any) { tools.set(def.name, def); },
+			registerProvider() {}, // Phase B: the default export registers the cooldown providers; no-op for this relay suite
+			registerCommand() {},
 			sendMessage(msg: any, opts: any) { messages.push({ msg, opts }); return Promise.resolve(); },
 			emit(name: string) { for (const fn of handlers.get(name) ?? []) fn(); },
 		};
@@ -131,9 +138,9 @@ async function runNodeSuite() {
 	}
 
 	function tool(pi: any, name: string) { return pi.tools.get(name); }
-	async function startJob(pi: any, task = "Decide the migration target") {
+	async function startJob(pi: any, task = "Decide the migration target", readOnly = false) {
 		const before = children.length;
-		const result = await tool(pi, "subagent").execute("call", { agent: "test-worker", task }, undefined, undefined, { cwd: candidate, hasUI: false });
+		const result = await tool(pi, "subagent").execute("call", { agent: "test-worker", task, readOnly }, undefined, undefined, { cwd: candidate, hasUI: false });
 		assert.ok(result.details?.jobId, JSON.stringify(result));
 		await waitFor(() => children.length > before, "spawn");
 		return result.details.jobId as string;
@@ -159,7 +166,7 @@ async function runNodeSuite() {
 		return pi.messages.filter((m: any) => m.msg.customType === "subagent-decision" && (state === undefined || m.msg.details?.state === state));
 	}
 	async function openRequest(pi: any, requestId = REQ, dialogId = "dlg-1") {
-		const jobId = await startJob(pi);
+		const jobId = await startJob(pi, "Decide the migration target", true); // fake decision children never write the candidate
 		await waitFor(() => children.length > 0, "spawn");
 		const child = children[children.length - 1];
 		child.emit(notifyEnvelope(record(requestId)));
@@ -504,7 +511,7 @@ async function runNodeSuite() {
 		const pi = fakePi();
 		subagentExtension(pi);
 		await openRequest(pi);
-		const otherJob = await startJob(pi, "Unrelated task");
+		const otherJob = await startJob(pi, "Unrelated task", true);
 		await waitFor(() => children.length === 2, "second spawn");
 		const other = children[1];
 		other.emit({ type: "agent_settled" });
@@ -516,13 +523,13 @@ async function runNodeSuite() {
 	test("P11 background spawn grants only request_decision and the child relay; foreground gets neither", async () => {
 		const pi = fakePi();
 		subagentExtension(pi);
-		await startJob(pi);
+		await startJob(pi, "Decide the migration target", true);
 		const bg = children[0];
 		const tools = bg.args[bg.args.indexOf("--tools") + 1];
 		assert.equal(tools, "read,grep,find,ls,edit," + TOOL);
 		assert.ok(bg.args.some((a: string) => a.endsWith("decision-relay.ts")), "relay extension loaded");
 		assert.equal(bg.env[ENV], "1");
-		await tool(pi, "subagent").execute("fg", { agent: "test-worker", task: "Foreground", background: false }, undefined, undefined, { cwd: candidate, hasUI: false });
+		await tool(pi, "subagent").execute("fg", { agent: "test-worker", task: "Foreground", background: false, readOnly: true }, undefined, undefined, { cwd: candidate, hasUI: false });
 		await waitFor(() => children.length === 2, "foreground spawn");
 		const fg = children[1];
 		const fgTools = fg.args[fg.args.indexOf("--tools") + 1];

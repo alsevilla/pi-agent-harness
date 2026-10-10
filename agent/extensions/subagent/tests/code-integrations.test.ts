@@ -7,7 +7,7 @@ const agentDir = fileURLToPath(new URL("../../../", import.meta.url));
 mock.module("@earendil-works/pi-coding-agent", () => ({
   getAgentDir: () => agentDir,
 }));
-const { configureCodeIntegrations, CODE_NAVIGATION_GUIDANCE } = await import("../code-integrations.ts");
+const { configureCodeIntegrations, CODE_NAVIGATION_GUIDANCE, packageResourceGuidance } = await import("../code-integrations.ts");
 const config = JSON.parse(fs.readFileSync(new URL("../integrations.json", import.meta.url), "utf8"));
 const unsafeMutations = [
   "serena_replace_symbol_body", "serena_insert_before_symbol", "serena_insert_after_symbol",
@@ -30,7 +30,7 @@ function effectiveTools(agent: ReturnType<typeof role>) {
   assert.ok(index >= 0 && args[index + 1], "effective allowlist missing");
   return args[index + 1].split(",");
 }
-for (const name of ["rust-worker", "frontend-worker"]) {
+for (const name of ["backend-worker", "frontend-worker", "general-worker"]) {
   test(`${name} actual frontmatter keeps precise edit, excludes write and six Serena mutations`, () => {
     const agent = role(name);
     assert.ok(agent.tools.includes("edit"));
@@ -63,6 +63,14 @@ test("worktree policy permits safe relocation without a known restart configurat
     const policy = fs.readFileSync(new URL(path, import.meta.url), "utf8");
     assert.match(policy, /unknown restart configuration does not block authorized relocation/i, path);
   }
+});
+test("package resource guidance states precedence and empty outside the package", () => {
+  assert.equal(packageResourceGuidance(null), "");
+  const note = packageResourceGuidance("C:\\pkg");
+  assert.match(note, /Precedence: these bundled paths take effect over any profile path/);
+  assert.match(note, /Backend, frontend, graphify, browser and RFID skill catalogs are not bundled/);
+  for (const role of ["hardware-integration", "attendance-domain-specialist", "event-reconciliation-specialist", "messaging-specialist", "privacy-compliance-specialist"]) assert.match(note, new RegExp(role));
+  assert.match(note, /never dispatched/);
 });
 test("actual read-only scout grants remain unchanged", () => {
   const agent = role("scout");

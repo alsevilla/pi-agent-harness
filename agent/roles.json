@@ -81,14 +81,22 @@
   },
   {
     "name": "reviewer",
-    "provider": "openai-codex",
-    "model": "gpt-6.1-sol",
-    "fallbackModel": "github-copilot/gpt-6-sol",
+    "provider": "anthropic",
+    "model": "claude-sonnet-5-5",
+    "fallbackModel": "openai-codex/gpt-6.1-sol || github-copilot/claude-sonnet-5",
     "thinking": "medium",
     "tools": "read, grep, find, ls, bash, powershell"
   },
   {
-    "name": "rust-worker",
+    "name": "general-worker",
+    "provider": "anthropic",
+    "model": "claude-haiku-5-5",
+    "fallbackModel": "openai-codex/gpt-6-luna || github-copilot/gpt-6-luna",
+    "thinking": "low",
+    "tools": "read, grep, find, ls, bash, powershell, edit"
+  },
+  {
+    "name": "backend-worker",
     "provider": "anthropic",
     "model": "claude-haiku-5-5",
     "fallbackModel": "openai-codex/gpt-6-luna || github-copilot/gpt-6-luna",

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getFallbackSequence, nextFallbackModel, parseFallbackModels, shouldRetryWithFallback } from "../model-routing.ts";
+import { getFallbackSequence, isProviderAvailabilityFailure, nextFallbackModel, parseFallbackModels, shouldRetryWithFallback } from "../model-routing.ts";
 
 test("fallback strings parse as ordered normalized model sequences", () => {
   assert.deepEqual(parseFallbackModels(" openai-codex/gpt-6-luna || || github-copilot/gpt-6-luna || openai-codex/gpt-6-luna "), [
@@ -47,4 +47,23 @@ test("quota fallback cannot replay edits, canceled work or task failures", () =>
   assert.equal(shouldRetryWithFallback({ ...failure, stopReason: "aborted" }, primary, fallback), false);
   assert.equal(shouldRetryWithFallback(failure, primary, fallback, true), false);
   assert.equal(shouldRetryWithFallback({ ...failure, errorMessage: "test failed" }, primary, fallback), false);
+});
+
+test("availability classifier reads only the real error message: no output/stderr prose, no auth or model replay", () => {
+  const base = { exitCode: 1, stopReason: "error" };
+  assert.equal(isProviderAvailabilityFailure({ ...base, errorMessage: "You have hit your ChatGPT usage limit (plus plan). Try again in ~53 min." }), true);
+  assert.equal(isProviderAvailabilityFailure({ ...base, errorMessage: "upstream returned no response" }), true);
+  assert.equal(isProviderAvailabilityFailure({ ...base, errorMessage: "429 Too Many Requests" }), true);
+  assert.equal(isProviderAvailabilityFailure({ ...base, errorMessage: "401 unauthorized" }), false);
+  assert.equal(isProviderAvailabilityFailure({ ...base, errorMessage: "model gpt-x not found" }), false);
+  assert.equal(isProviderAvailabilityFailure({ ...base, errorMessage: "test failed", output: "rate limit exceeded in my answer" }), false);
+  assert.equal(isProviderAvailabilityFailure({ ...base, errorMessage: "", stderr: "503 unavailable" }), false);
+});
+
+test("the guard's own synthetic cooldown messages are never provider health, so a child refusal cannot bypass the store", () => {
+  const base = { exitCode: 1, stopReason: "error" };
+  for (const errorMessage of ["provider cooldown unavailable", "provider cooldown cooling", "provider cooldown probe-busy", "provider cooldown blocked"]) {
+    assert.equal(isProviderAvailabilityFailure({ ...base, errorMessage }), false, errorMessage);
+    assert.equal(shouldRetryWithFallback({ ...base, errorMessage }, "openai-codex/gpt-6.1-sol", "github-copilot/gpt-6-sol"), false, errorMessage);
+  }
 });

@@ -15,7 +15,7 @@ Current global policy and project requirements govern authority and selected gat
 | Deployment/service/backups | devops-specialist |
 | Logs/metrics/health/audit | observability-specialist |
 
-Rust-worker is the normal Rust/Axum writer and already receives rust-axum-engineering.
+backend-worker is the normal writer for authorized server-side changes in any language. It receives rust-axum-engineering only for Rust/Axum/Tokio/Tower modules.
 Add sqlite-sqlx-engineering only when persistence semantics matter. Domain specialists
 provide decisions and evidence; touching their domain does not automatically require
 a call. Do not let storage types silently define a public API contract.

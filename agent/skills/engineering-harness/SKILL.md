@@ -15,7 +15,7 @@ For "queue this", record the request and order, acknowledge briefly, and continu
 | Unknown-cause failure | `debug/index.md`; actual `debugger` before speculative fixes |
 | Conflicting evidence / material choice | `knowledge/index.md` / `decision/index.md`; main owns authorization |
 | Necessary dependencies/migration/coordination plan | `plan/index.md`; **main owns PLAN** |
-| Authorized implementation | `execute/index.md`; `rust-worker` / `frontend-worker` |
+| Authorized implementation | `execute/index.md`; `backend-worker` / `frontend-worker` / `general-worker` |
 | Selected independent evidence | `verify/index.md` -> `test-engineer`; `review/index.md` -> `reviewer` |
 | Requested isolation/integration | `worktree/index.md`, `integrate/index.md`; main owns orchestration |
 | Requested delivery/release | `ship/index.md` -> `release-engineer` |
@@ -25,4 +25,4 @@ PLAN is not an architecture-specialist procedure. The architecture specialist su
 
 Do not execute the whole lifecycle by default. Parent frontend/backend/RFID routers select domain modules; procedures do not launch roles by themselves. Use actual subagent calls with self-contained candidate/contract packets and await real evidence. Manual prompts are optional instruction shortcuts.
 
-Read `references/routing.md` only for uncertain role/gate selection; `references/recovery.md` for failed edits/new failures/oversized packets; `references/worker-control.md` for steering/pause/cancel; `references/runtime.md` for integration/provider/shell questions; `references/git-attribution.md` before authorized commits/PRs. None is an automatic preload. Historical `extended.md` material cannot override current authority or create new gates.
+Read `references/routing.md` only for uncertain role/gate selection; `references/recovery.md` for failed edits/new failures/oversized packets; `references/worker-control.md` for steering/pause/cancel; `references/runtime.md` for integration/provider/shell questions; `references/git-attribution.md` before authorized commits/PRs; `references/run-manifest.md` for the optional main-owned manifest of complex multi-stage runs; `references/skill-evaluation.md` for the offline routing-fixture evaluator. None is an automatic preload. Historical `extended.md` material cannot override current authority or create new gates.

@@ -1,10 +1,10 @@
 ---
 name: backend
-description: Select task-relevant Rust/Axum, SQLite/SQLx or load/resilience modules. Known contracts go to rust-worker; material unresolved domain decisions go to justified specialists.
+description: Select task-relevant Rust/Axum, SQLite/SQLx or load/resilience modules. Known contracts go to backend-worker; material unresolved domain decisions go to justified specialists.
 ---
 
 # Backend
-Known Rust/Axum contract -> rust-worker. Unknown-cause defects follow harness DEBUG.
+Known backend contract (Rust/Axum or another stack) -> backend-worker. Unknown-cause defects follow harness DEBUG.
 Touching a domain alone does not require a specialist. For material unresolved decisions:
 SQLite -> sqlite-specialist; concurrency -> concurrency-specialist; security -> security-specialist;
 API -> api-specialist; subsystem boundaries -> architecture-specialist; measured capacity

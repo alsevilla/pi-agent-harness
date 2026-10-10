@@ -31,7 +31,7 @@ rust-axum-engineering, sqlite-sqlx-engineering, load-resilience-testing live und
 backend/<name>/index.md. Use only the capabilities justified by the task.
 
 Default role links include:
-- rust-worker -> rust-axum-engineering
+- backend-worker -> rust-axum-engineering (Rust/Axum stacks only)
 - sqlite-specialist -> sqlite-sqlx-engineering
 
 `load-resilience-testing` remains conditional for performance, concurrency, SQLite, reviewer, and verification work when burst/overload/resilience evidence is actually material. Do not preload it for ordinary hot-path profiling or localized performance questions.
@@ -63,5 +63,8 @@ package skill is disabled to keep main and worker guidance consistent. A folder 
 alone saves no tokens: savings come from fewer catalog entries, smaller module indexes,
 selective detail loading and avoiding blanket preload of long capability guides.
 
+## Agent creation
+agent-creation (agent-creation/SKILL.md): user-authorized, preview-first stdlib CLI that creates one project-local Pi agent and an optional skill from a strict JSON spec. Not a harness factory; it adds no integrations, trust, reload or launch.
+
 ## Policy details on demand
-Main entry: engineering-harness/SKILL.md. Its references/routing.md, recovery.md, worker-control.md, runtime.md and git-attribution.md each have a specific read trigger; do not preload all. Optional references/roles/ catalogs support Scout, DevOps and UI/UX only when deeper topic guidance is needed. These files have no SKILL.md and add no skill-discovery entries. Unused upstream Graphify pipeline references are removed; keep the adapted query/build procedures.
+Main entry: engineering-harness/SKILL.md. Its references/routing.md, recovery.md, worker-control.md, runtime.md and git-attribution.md each have a specific read trigger; do not preload all. Optional references/roles/ catalogs support Scout, DevOps and UI/UX only when deeper topic guidance is needed. These files have no SKILL.md and add no skill-discovery entries. Unused upstream Graphify pipeline references are removed; keep the adapted query/build procedures. Engineering-harness reference `token-efficiency.md` loads only for token/handoff investigation.

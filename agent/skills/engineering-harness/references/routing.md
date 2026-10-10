@@ -78,6 +78,12 @@ LEARN is also conditional: `release-engineer` reads `engineering-harness/learn/i
 
 `devops-specialist` owns unresolved deployment/service/backup design. `release-engineer` owns release readiness/execution against the resolved operational contract. Distinct questions may justify both; neither may launch the other.
 
+## Task shape
+Shape is orthogonal to the T0-T4 uncertainty/risk tier: it chooses how independent or dependent work is sequenced, not whether a role, specialist, tester or gate is needed. Shape never overrides user authorization, leaf/no-helper rules or lossless chain facts.
+- Enumerable independent batch (items, order and ownership known in advance; no back-and-forth): may run in parallel only within existing runtime limits (parallel <=8 tasks with <=4 concurrent; DAG <=8 nodes with <=4 running) and workspace admission, with disjoint ownership. A high-risk item keeps its tier; parallelism does not downgrade T3/T4 review or verification.
+- Ordered pipeline (stages known in advance, each needing the parent's actual result): use chain or DAG dependencies. Never parallelize dependent facts.
+- Feedback loop (the next step depends on the result): keep it bounded and main-owned: root cause -> focused check -> fresh worker packet. Unknown-cause failures go to `debugger` first. No automatic self-looping helpers, new modes or unbounded retries.
+
 ## Planning
 Do not create a formal multi-step plan for trivial/localized work. Use `plan` when dependencies, sequencing, rollout, migration, or cross-layer coordination make an explicit execution contract materially useful.
 

@@ -1,6 +1,6 @@
 # attendance-domain
 
-Use for unresolved school-attendance business semantics. The named role is `attendance-domain-specialist`; `rust-worker` remains the backend writer.
+Use for unresolved school-attendance business semantics. The named role is `attendance-domain-specialist`; `backend-worker` remains the backend writer.
 
 ## Required analysis
 Establish the smallest explicit state/rule contract needed for the task:

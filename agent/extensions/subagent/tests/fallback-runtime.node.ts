@@ -17,15 +17,20 @@ const indexDependencies = new Set([
 	"node:child_process",
 	"@earendil-works/pi-ai",
 	"typebox",
-	"./background.ts",
 	"./monitor.ts",
 	"./code-integrations.ts",
 	"./build-env.ts",
 ]);
 
+// Launch-state stub for the provider cooldown entry: its pi-ai/compat import is not resolvable from this node test.
+const entryStubUrl = `data:text/javascript,${encodeURIComponent(
+	"export default function providerCooldownEntry() {}\nexport function registerProviderCooldown() {}\nexport async function runProviderCooldownCommand() { return { message: '', type: 'info' }; }\nexport async function providerLaunchState(model) { return globalThis.__piProviderLaunch(model); }\nexport async function guardRefusalReplayable(model, errorMessage) { return globalThis.__piGuardRefusal(model, errorMessage); }",
+)}`;
+
 registerHooks({
 	resolve(specifier, context, nextResolve) {
 		if (specifier === "@earendil-works/pi-coding-agent") return { url: doublesUrl, shortCircuit: true };
+		if (context.parentURL === indexUrl && specifier === "./provider-cooldown-entry.ts") return { url: entryStubUrl, shortCircuit: true };
 		if (context.parentURL === indexUrl && indexDependencies.has(specifier)) return { url: doublesUrl, shortCircuit: true };
 		return nextResolve(specifier, context);
 	},
@@ -66,6 +71,12 @@ let discoverAgents: typeof import("../agents.ts").discoverAgents;
 let runSingleAgent: (...args: unknown[]) => Promise<RunResult>;
 let attempts: string[] = [];
 let spawnPlan: (model: string) => SpawnPlan = () => success();
+// Launch state per declared model; the default launches everything (provider cooldown entry stub).
+let launchPlan: (model: string) => { state: string; replayable?: boolean } = () => ({ state: "launch" });
+(globalThis as { __piProviderLaunch?: (model: string) => unknown }).__piProviderLaunch = (model) => launchPlan(model);
+// The parent's own store verdict on a child's guard refusal (provider-cooldown-entry guardRefusalReplayable stub).
+let guardPlan: (model: string, message?: string) => boolean = () => false;
+(globalThis as { __piGuardRefusal?: (model: string, message?: string) => boolean }).__piGuardRefusal = (model, message) => guardPlan(model, message);
 
 // Records every child launch in order; the model is the value following --model.
 (globalThis as { __piSubagentFakeSpawn?: (args: string[]) => SpawnPlan }).__piSubagentFakeSpawn = (args) => {
@@ -103,6 +114,8 @@ before(async () => {
 beforeEach(() => {
 	attempts = [];
 	spawnPlan = () => success();
+	launchPlan = () => ({ state: "launch" });
+	guardPlan = () => false;
 });
 
 after(() => {
@@ -205,6 +218,19 @@ test("task failures, tool activity and aborted stop reasons never reach the fall
 	attempts = [];
 	spawnPlan = () => ({ events: [assistant("aborted", "", "503 unavailable")], exitCode: 1 });
 	await run(fx.nested, agents, "guarded");
+	assert.deepEqual(attempts, [PRIMARY]);
+});
+
+test("an INCOMPLETE stop with provider-looking text never reaches the fallback chain", async () => {
+	const fx = setupRoots();
+	writeRole(fx.userAgents, "cut-short", { model: PRIMARY, fallbackModel: `"${LUNA} || ${COPILOT_LUNA}"` });
+	const agents = discover(fx.nested);
+	spawnPlan = () => ({ events: [assistant("length", "partial", "429 Too Many Requests")], exitCode: 1 });
+	await run(fx.nested, agents, "cut-short");
+	assert.deepEqual(attempts, [PRIMARY]);
+	attempts = [];
+	spawnPlan = () => ({ events: [assistant("length", "partial", "429 Too Many Requests")], exitCode: 0 });
+	await run(fx.nested, agents, "cut-short");
 	assert.deepEqual(attempts, [PRIMARY]);
 });
 
@@ -337,4 +363,141 @@ test("project frontmatter stays authoritative and is not overridden by roles.jso
 	assert.deepEqual(agent.fallbackModel, ["github-copilot/claude-sonnet-5.5"]);
 	assert.equal(agent.thinking, "high");
 	assert.deepEqual(agent.tools, ["read", "bash"]);
+});
+
+// ---- Provider cooldown pre-spawn check: a declared provider in cooldown never launches a child --------------------------
+
+test("provider cooldown: a replayable cooling primary launches no child and moves to the declared fallback", async () => {
+	const fx = setupRoots();
+	writeRole(fx.userAgents, "cool", { model: PRIMARY, fallbackModel: `"${LUNA}"` });
+	launchPlan = (model) => (model === PRIMARY ? { state: "cooling", replayable: true } : { state: "launch" });
+	const result = await run(fx.nested, discover(fx.nested), "cool");
+	assert.deepEqual(attempts, [LUNA]);
+	assert.equal(result.exitCode, 0);
+	assert.match(result.stderr, /Model openai-codex\/gpt-6\.1-sol skipped \(provider cooldown cooling\); retried with openai-codex\/gpt-6-luna/);
+});
+
+test("provider cooldown: a non-replayable cooldown (auth block) never spawns and never falls back", async () => {
+	const fx = setupRoots();
+	writeRole(fx.userAgents, "blocked", { model: PRIMARY, fallbackModel: `"${LUNA}"` });
+	launchPlan = (model) => (model === PRIMARY ? { state: "blocked", replayable: false } : { state: "launch" });
+	const result = await run(fx.nested, discover(fx.nested), "blocked");
+	assert.deepEqual(attempts, []);
+	assert.equal(result.exitCode, 1);
+	assert.match(result.stderr, /not launched: provider cooldown blocked/);
+});
+
+test("provider cooldown: the chain skips each replayable cooling fallback and stops at the declared list", async () => {
+	const fx = setupRoots();
+	writeRole(fx.userAgents, "chain-cool", { model: PRIMARY, fallbackModel: `"${LUNA} || ${COPILOT_LUNA}"` });
+	launchPlan = (model) => (model === PRIMARY || model === LUNA ? { state: "cooling", replayable: true } : { state: "launch" });
+	const result = await run(fx.nested, discover(fx.nested), "chain-cool");
+	assert.deepEqual(attempts, [COPILOT_LUNA]);
+	assert.equal(result.exitCode, 0);
+});
+
+test("provider cooldown: when every declared model is cooling nothing spawns and the run fails", async () => {
+	const fx = setupRoots();
+	writeRole(fx.userAgents, "all-cool", { model: PRIMARY, fallbackModel: `"${LUNA} || ${COPILOT_LUNA}"` });
+	launchPlan = () => ({ state: "cooling", replayable: true });
+	const result = await run(fx.nested, discover(fx.nested), "all-cool");
+	assert.deepEqual(attempts, []);
+	assert.equal(result.exitCode, 1);
+	assert.match(result.stderr, /Model github-copilot\/gpt-6-luna not launched: provider cooldown cooling/);
+});
+
+test("provider cooldown: a cooling primary whose fallback is non-replayable stops without spawning the fallback", async () => {
+	const fx = setupRoots();
+	writeRole(fx.userAgents, "unreplayable", { model: PRIMARY, fallbackModel: `"${LUNA}"` });
+	launchPlan = (model) => (model === PRIMARY ? { state: "cooling", replayable: true } : { state: "cooling", replayable: false });
+	const result = await run(fx.nested, discover(fx.nested), "unreplayable");
+	assert.deepEqual(attempts, []);
+	assert.equal(result.exitCode, 1);
+});
+
+// ---- R2/R3/R5 parent proofs: guard refusals replay only through the parent store; probe-busy is reversible admission ----
+
+const GUARD_COOLING = "provider cooldown cooling";
+
+test("R2: a guard refusal the parent store still calls replayable advances to the declared fallback, once", async () => {
+	const fx = setupRoots();
+	writeRole(fx.userAgents, "refused", { model: PRIMARY, fallbackModel: `"${LUNA} || ${COPILOT_LUNA}"` });
+	guardPlan = (model, message) => model === PRIMARY && message === GUARD_COOLING;
+	spawnPlan = (model) => (model === PRIMARY ? { events: [assistant("error", "", GUARD_COOLING)], exitCode: 1 } : success());
+	const result = await run(fx.nested, discover(fx.nested), "refused");
+	assert.deepEqual(attempts, [PRIMARY, LUNA]);
+	assert.equal(result.exitCode, 0);
+	assert.equal(result.model, LUNA);
+});
+
+test("R2: the guard marker alone is not enough: a refusal the parent store does not confirm stops the chain", async () => {
+	const fx = setupRoots();
+	writeRole(fx.userAgents, "unconfirmed", { model: PRIMARY, fallbackModel: `"${LUNA}"` });
+	guardPlan = () => false;
+	spawnPlan = () => ({ events: [assistant("error", "", GUARD_COOLING)], exitCode: 1 });
+	const result = await run(fx.nested, discover(fx.nested), "unconfirmed");
+	assert.deepEqual(attempts, [PRIMARY]);
+	assert.equal(result.exitCode, 1);
+});
+
+test("R2: a confirmed guard refusal after tool activity, an abort or a length stop never replays", async () => {
+	const fx = setupRoots();
+	writeRole(fx.userAgents, "refusal-guarded", { model: PRIMARY, fallbackModel: `"${LUNA}"` });
+	const agents = discover(fx.nested);
+	guardPlan = () => true;
+	spawnPlan = () => ({ events: [{ type: "tool_execution_start" }, assistant("error", "", GUARD_COOLING)], exitCode: 1 });
+	await run(fx.nested, agents, "refusal-guarded");
+	assert.deepEqual(attempts, [PRIMARY]);
+	attempts = [];
+	spawnPlan = () => ({ events: [assistant("aborted", "", GUARD_COOLING)], exitCode: 1 });
+	await run(fx.nested, agents, "refusal-guarded");
+	assert.deepEqual(attempts, [PRIMARY]);
+	attempts = [];
+	spawnPlan = () => ({ events: [assistant("length", "partial", GUARD_COOLING)], exitCode: 1 });
+	await run(fx.nested, agents, "refusal-guarded");
+	assert.deepEqual(attempts, [PRIMARY]);
+});
+
+test("R3: a probe-busy primary moves to the declared fallbacks in order and is never spawned", async () => {
+	const fx = setupRoots();
+	writeRole(fx.userAgents, "busy", { model: PRIMARY, fallbackModel: `"${LUNA} || ${COPILOT_LUNA}"` });
+	launchPlan = (model) => (model === PRIMARY || model === LUNA ? { state: "probe-busy", replayable: true } : { state: "launch" });
+	const result = await run(fx.nested, discover(fx.nested), "busy");
+	assert.deepEqual(attempts, [COPILOT_LUNA]);
+	assert.equal(result.exitCode, 0);
+	assert.match(result.stderr, /Model openai-codex\/gpt-6\.1-sol skipped \(provider cooldown probe-busy\)/);
+});
+
+test("R3: an unavailable store blocks the whole declared chain, fail-closed", async () => {
+	const fx = setupRoots();
+	writeRole(fx.userAgents, "unavailable", { model: PRIMARY, fallbackModel: `"${LUNA}"` });
+	launchPlan = () => ({ state: "unavailable", replayable: false });
+	const result = await run(fx.nested, discover(fx.nested), "unavailable");
+	assert.deepEqual(attempts, []);
+	assert.equal(result.exitCode, 1);
+	assert.match(result.stderr, /not launched: provider cooldown unavailable/);
+});
+
+test("R5: an abort that lands during the provider launch check spawns nothing and launches no fallback", async () => {
+	const fx = setupRoots();
+	writeRole(fx.userAgents, "precheck-abort", { model: PRIMARY, fallbackModel: `"${LUNA}"` });
+	const controller = new AbortController();
+	launchPlan = (model) => {
+		if (model === PRIMARY) controller.abort();
+		return { state: "launch" };
+	};
+	await assert.rejects(run(fx.nested, discover(fx.nested), "precheck-abort", controller.signal), /Subagent was aborted/);
+	assert.deepEqual(attempts, []);
+});
+
+test("R5: an abort during the check of a replayable cooling primary does not start the fallback recursion", async () => {
+	const fx = setupRoots();
+	writeRole(fx.userAgents, "cooling-abort", { model: PRIMARY, fallbackModel: `"${LUNA}"` });
+	const controller = new AbortController();
+	launchPlan = (model) => {
+		if (model === PRIMARY) controller.abort();
+		return model === PRIMARY ? { state: "cooling", replayable: true } : { state: "launch" };
+	};
+	await assert.rejects(run(fx.nested, discover(fx.nested), "cooling-abort", controller.signal), /Subagent was aborted/);
+	assert.deepEqual(attempts, []);
 });
